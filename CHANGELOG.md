@@ -1,0 +1,76 @@
+# Changelog
+
+## v0.1.0 - 2026-03-10
+
+### Highlights
+
+- 发布 `Codex Feishu Bridge` 首个可部署版本，支持飞书 `long-connection` 和 `webhook` 两种接入模式。
+- 建立项目路由、会话续接、多会话历史和飞书命令控制链路，可在飞书侧按项目驱动 Codex CLI。
+- 提供面向生产的运行能力，包括实例锁、启动预检、后台运行、运行超时、取消、stale/orphaned run 恢复和运行态管理命令。
+- 增加消息幂等去重、审计日志、Prometheus 指标、Alertmanager/Grafana 示例，满足基础观测和排障需求。
+- 支持飞书原生消息回复、私聊/群聊白名单、群聊 `@mention` 控制，以及一键全局安装脚本。
+
+### Included
+
+- 飞书接入：
+  - `long-connection` 文本消息桥接
+  - `webhook` 事件订阅与卡片回调
+  - 原生消息回复、卡片状态回复、手工回放和 smoke 测试
+- Codex 编排：
+  - `codex exec` 新会话
+  - `codex exec resume` 续会话
+  - CLI 能力探测与版本兼容
+  - `pre_exec` 预执行命令支持，例如 `proxy_on`
+- 会话与项目：
+  - `/help`
+  - `/projects`
+  - `/project <alias>`
+  - `/status`
+  - `/new`
+  - `/cancel`
+  - `/session list|use|new|drop`
+  - 同聊天窗口下按项目隔离队列
+- 运行与运维：
+  - `serve --detach`
+  - `serve status`
+  - `serve logs`
+  - `serve ps`
+  - `serve stop`
+  - `doctor`
+  - `doctor --remote`
+  - `feishu inspect`
+  - 用户级 `launchd/systemd` 服务模板
+- 可观测性：
+  - 审计日志 `audit.jsonl`
+  - Prometheus `/metrics`
+  - Alertmanager 配置示例
+  - Grafana provisioning 与 dashboard 示例
+- 安装与交付：
+  - 全局/项目级配置
+  - `codex-feishu bind`
+  - 可选 Codex skill 安装
+  - 一键安装脚本 `scripts/install.sh`
+
+### Default Behavior
+
+- 群聊默认要求 `@机器人` 才触发，除非显式关闭 `security.require_group_mentions`。
+- 启用 `service.reply_quote_user_message = true` 时，优先使用飞书原生 reply 回复触发消息。
+- `bind` 默认优先使用最近项目配置；若不存在项目配置，则回退到全局 `~/.codex-feishu/config.toml`。
+
+### Known Limitations
+
+- `long-connection` 主要适合文本消息接入；复杂卡片交互仍以 `webhook` 模式为主。
+- 真实飞书联调依赖租户侧应用可用性、机器人能力和事件订阅配置。
+- `security.allowed_project_roots = ["/"]` 仅适合临时联调，不适合作为长期生产配置。
+
+### Verification
+
+- `pnpm test`
+- `pnpm typecheck`
+- `pnpm build`
+
+当前版本在发布前验证结果：
+
+- `21` 个测试文件通过
+- `59` 个测试用例通过
+
