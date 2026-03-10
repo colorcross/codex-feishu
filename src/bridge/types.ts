@@ -3,6 +3,16 @@ export interface Mention {
   name?: string;
 }
 
+export interface MessageAttachment {
+  kind: 'image' | 'file' | 'audio' | 'media' | 'post' | 'unknown';
+  key?: string;
+  name?: string;
+  mime_type?: string;
+  duration_ms?: number;
+  size_bytes?: number;
+  summary: string;
+}
+
 export interface IncomingMessageContext {
   tenant_key?: string;
   chat_id: string;
@@ -11,7 +21,9 @@ export interface IncomingMessageContext {
   actor_name?: string;
   sender_type?: string;
   message_id: string;
+  message_type: string;
   text: string;
+  attachments: MessageAttachment[];
   mentions: Mention[];
   raw: unknown;
 }

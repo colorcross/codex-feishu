@@ -162,6 +162,11 @@ function resolveLayerPaths(raw: Record<string, unknown>, baseDir: string): Recor
       if (typeof projectConfig.instructions_prefix === 'string') {
         projectConfig.instructions_prefix = resolveMaybeRelative(projectConfig.instructions_prefix, baseDir);
       }
+      if (Array.isArray(projectConfig.knowledge_paths)) {
+        projectConfig.knowledge_paths = projectConfig.knowledge_paths.map((entry) =>
+          typeof entry === 'string' ? resolveMaybeRelative(entry, baseDir) : entry,
+        );
+      }
     }
   }
 

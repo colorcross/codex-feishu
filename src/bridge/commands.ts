@@ -4,6 +4,7 @@ export type BridgeCommand =
   | { kind: 'projects' }
   | { kind: 'new' }
   | { kind: 'cancel' }
+  | { kind: 'kb'; action: 'search' | 'status'; query?: string }
   | { kind: 'project'; alias?: string }
   | { kind: 'session'; action: 'list' | 'use' | 'new' | 'drop'; threadId?: string }
   | { kind: 'prompt'; prompt: string };
@@ -29,6 +30,8 @@ export function parseBridgeCommand(input: string): BridgeCommand {
       return { kind: 'new' };
     case '/cancel':
       return { kind: 'cancel' };
+    case '/kb':
+      return parseKnowledgeCommand(argument);
     case '/project':
       return { kind: 'project', alias: argument || undefined };
     case '/session':
@@ -56,6 +59,8 @@ export function buildHelpText(): string {
     '/status 查看当前项目、会话与运行状态',
     '/new 为当前项目新开会话',
     '/cancel 取消当前项目正在运行的任务',
+    '/kb status 查看当前项目知识库目录',
+    '/kb search <query> 搜索项目文档/知识库',
     '/session list 列出当前项目保存过的会话',
     '/session use <thread_id> 切换到指定会话',
     '/session new 让下一条消息新开会话',
@@ -80,5 +85,19 @@ function parseSessionCommand(argument: string): BridgeCommand {
       return { kind: 'session', action: 'drop', threadId };
     default:
       return { kind: 'prompt', prompt: `/session${argument ? ` ${argument}` : ''}`.trim() };
+  }
+}
+
+function parseKnowledgeCommand(argument: string): BridgeCommand {
+  const [subcommand, ...rest] = argument.split(/\s+/).filter(Boolean);
+  const query = rest.join(' ').trim() || undefined;
+
+  switch (subcommand) {
+    case 'status':
+      return { kind: 'kb', action: 'status' };
+    case 'search':
+      return { kind: 'kb', action: 'search', query };
+    default:
+      return { kind: 'prompt', prompt: `/kb${argument ? ` ${argument}` : ''}`.trim() };
   }
 }

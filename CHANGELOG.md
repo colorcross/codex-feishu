@@ -8,6 +8,8 @@
 - 新增英文官网落地页，并和中文官网共用同一套视觉系统。
 - 增加 npm 发布准备，包括公共发布配置、npm 安装方式和相关文档更新。
 - 新增飞书交互路线图，明确文档 / 知识库 / 多媒体沟通的下一阶段范围。
+- 新增 `/kb status`、`/kb search <query>`，支持项目内文档搜索。
+- 图片、文件、音频、富文本消息会解析成结构化元数据并注入 Codex 提示词。
 
 ### Included
 
@@ -23,6 +25,10 @@
   - `docs/README.en.md`
   - `docs/faq.md`
   - `docs/feishu-roadmap.md`
+- 飞书交互：
+  - `src/feishu/extractors.ts`
+  - `src/knowledge/search.ts`
+  - `src/bridge/service.ts`
 - 发布准备：
   - `package.json`
   - `src/cli.ts`
@@ -30,6 +36,8 @@
 ### Verification
 
 - `pnpm build`
+- `pnpm test`
+- `pnpm typecheck`
 - `npm pack --dry-run`
 - GitHub Pages 中英文页面可访问
 

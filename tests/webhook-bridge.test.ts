@@ -183,6 +183,7 @@ function buildWebhookConfig(): BridgeConfig {
         root: '/tmp/project',
         session_scope: 'chat',
         mention_required: false,
+        knowledge_paths: [],
       },
     },
   };

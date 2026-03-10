@@ -87,6 +87,7 @@ describe('doctor', () => {
           root: projectRoot,
           session_scope: 'chat',
           mention_required: false,
+          knowledge_paths: [],
         },
       },
     };

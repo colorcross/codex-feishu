@@ -15,6 +15,7 @@ import type { MetricsRegistry } from '../observability/metrics.js';
 import { IdempotencyStore } from '../state/idempotency-store.js';
 import { RunStateStore, type RunState } from '../state/run-state-store.js';
 import { isProcessAlive, terminateProcess } from '../runtime/process.js';
+import { resolveKnowledgeRoots, searchKnowledgeBase } from '../knowledge/search.js';
 
 interface ActiveRunHandle {
   runId: string;
@@ -54,7 +55,7 @@ export class CodexFeishuService {
   }
 
   public async handleIncomingMessage(context: IncomingMessageContext): Promise<void> {
-    if (!context.text.trim()) {
+    if (!context.text.trim() && context.attachments.length === 0) {
       return;
     }
 
@@ -92,6 +93,8 @@ export class CodexFeishuService {
       command: command.kind,
       message_id: context.message_id,
       text: context.text,
+      message_type: context.message_type,
+      attachment_count: context.attachments.length,
     });
     const selectionKey = await this.getSelectionConversationKey(context);
 
@@ -114,11 +117,14 @@ export class CodexFeishuService {
       case 'cancel':
         await this.handleCancelCommand(context, selectionKey);
         return;
+      case 'kb':
+        await this.handleKnowledgeCommand(context, selectionKey, command.action, command.query);
+        return;
       case 'session':
         await this.handleSessionCommand(context, selectionKey, command.action, command.threadId);
         return;
       case 'prompt': {
-        const prompt = normalizeIncomingText(command.prompt);
+        const prompt = normalizeIncomingText(command.prompt) || (context.attachments.length > 0 ? '请结合这条飞书消息附带的多媒体信息继续处理。' : '');
         if (!prompt) {
           return;
         }
@@ -136,6 +142,7 @@ export class CodexFeishuService {
             projectAlias: projectContext.projectAlias,
             project: projectContext.project,
             prompt,
+            incomingMessage: context,
             sessionKey: projectContext.sessionKey,
             queueKey: projectContext.queueKey,
             replyToMessageId: context.message_id,
@@ -231,6 +238,18 @@ export class CodexFeishuService {
           tenantKey: context.tenant_key,
           projectAlias,
           project,
+          incomingMessage: {
+            tenant_key: context.tenant_key,
+            chat_id: chatId,
+            chat_type: 'unknown',
+            actor_id: context.actor_id,
+            message_id: context.open_message_id ?? `card-rerun-${Date.now()}`,
+            message_type: 'card-action',
+            text: previousPrompt,
+            attachments: [],
+            mentions: [],
+            raw: context.raw,
+          },
           prompt: previousPrompt,
           sessionKey,
           queueKey,
@@ -258,6 +277,7 @@ export class CodexFeishuService {
     tenantKey?: string;
     projectAlias: string;
     project: ProjectConfig;
+    incomingMessage: IncomingMessageContext;
     prompt: string;
     sessionKey: string;
     queueKey: string;
@@ -272,7 +292,7 @@ export class CodexFeishuService {
         scope: input.project.session_scope,
       }));
     const currentSession = conversation.projects[input.projectAlias];
-    const bridgePrompt = await this.buildBridgePrompt(input.projectAlias, input.project, input.prompt);
+    const bridgePrompt = await this.buildBridgePrompt(input.projectAlias, input.project, input.incomingMessage, input.prompt);
     const startedAt = Date.now();
     const runId = randomUUID();
     let lastProgressUpdate = 0;
@@ -595,6 +615,72 @@ export class CodexFeishuService {
     }
   }
 
+  private async handleKnowledgeCommand(
+    context: IncomingMessageContext,
+    selectionKey: string,
+    action: 'search' | 'status',
+    query?: string,
+  ): Promise<void> {
+    const projectContext = await this.resolveProjectContext(context, selectionKey);
+    const roots = await resolveKnowledgeRoots(projectContext.project);
+
+    if (action === 'status') {
+      const message = roots.length
+        ? [`项目: ${projectContext.projectAlias}`, '知识库目录:', ...roots.map((root) => `- ${root}`)].join('\n')
+        : [`项目: ${projectContext.projectAlias}`, '当前没有可用知识库目录。', '可在项目配置中设置 knowledge_paths，或在项目根下提供 docs/README。'].join('\n');
+      await this.sendTextReply(context.chat_id, message, context.message_id, context.text);
+      return;
+    }
+
+    if (!query) {
+      await this.sendTextReply(context.chat_id, '用法: /kb search <query>', context.message_id, context.text);
+      return;
+    }
+
+    const result = await searchKnowledgeBase(projectContext.project, query, 5);
+    await this.auditLog.append({
+      type: 'knowledge.search',
+      chat_id: context.chat_id,
+      actor_id: context.actor_id,
+      project_alias: projectContext.projectAlias,
+      query,
+      result_count: result.matches.length,
+    });
+
+    if (result.roots.length === 0) {
+      await this.sendTextReply(
+        context.chat_id,
+        [`项目: ${projectContext.projectAlias}`, '当前没有可搜索的知识库目录。', '可在项目配置中设置 knowledge_paths，或在项目根下提供 docs/README。'].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    if (result.matches.length === 0) {
+      await this.sendTextReply(
+        context.chat_id,
+        [`项目: ${projectContext.projectAlias}`, `知识库搜索: ${query}`, '未找到匹配项。', '', '搜索目录:', ...result.roots.map((root) => `- ${root}`)].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    const lines = result.matches.map((match, index) => {
+      const relativePath = match.file.startsWith(projectContext.project.root)
+        ? match.file.slice(projectContext.project.root.length + 1)
+        : match.file;
+      return `${index + 1}. ${relativePath}:${match.line}\n   ${truncateExcerpt(match.text, 140)}`;
+    });
+    await this.sendTextReply(
+      context.chat_id,
+      [`项目: ${projectContext.projectAlias}`, `知识库搜索: ${query}`, '', ...lines].join('\n'),
+      context.message_id,
+      context.text,
+    );
+  }
+
   private async buildProjectsText(selectionKey: string): Promise<string> {
     const selected = await this.resolveProjectAlias(selectionKey);
     const lines = Object.entries(this.config.projects).map(([alias, project]) => {
@@ -662,7 +748,12 @@ export class CodexFeishuService {
     });
   }
 
-  private async buildBridgePrompt(projectAlias: string, project: ProjectConfig, userPrompt: string): Promise<string> {
+  private async buildBridgePrompt(
+    projectAlias: string,
+    project: ProjectConfig,
+    incomingMessage: IncomingMessageContext,
+    userPrompt: string,
+  ): Promise<string> {
     const prefixParts = [
       'You are replying through a Feishu bridge connected to Codex CLI.',
       'Keep the final response concise and action-oriented.',
@@ -686,9 +777,17 @@ export class CodexFeishuService {
       '',
       `Current project alias: ${projectAlias}`,
       `Current project root: ${project.root}`,
+      `Feishu message type: ${incomingMessage.message_type}`,
       '',
       'User message from Feishu:',
-      userPrompt,
+      userPrompt || '[no text body]',
+      ...(incomingMessage.attachments.length > 0
+        ? [
+            '',
+            'Message attachments:',
+            ...incomingMessage.attachments.map((attachment, index) => `${index + 1}. ${attachment.summary}`),
+          ]
+        : []),
     ].join('\n');
   }
 

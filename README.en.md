@@ -26,6 +26,8 @@ Codex Feishu sends Feishu messages into resumable Codex sessions, keeps projects
 - Supports both `long-connection` and `webhook` Feishu transports
 - Routes one Feishu entry point to multiple project directories
 - Starts new Codex sessions with `codex exec` and resumes existing ones with `codex exec resume`
+- Supports `/kb status` and `/kb search <query>` for project-local documentation search
+- Carries image/file/audio/rich-text metadata into the Codex prompt for media-aware conversations
 - Exposes operational commands such as `serve status`, `serve logs`, `serve ps`, and `doctor`
 - Keeps audit logs, idempotency state, run state, and Prometheus metrics local and inspectable
 
@@ -48,6 +50,8 @@ Common Feishu commands:
 - `/status`
 - `/new`
 - `/cancel`
+- `/kb status`
+- `/kb search <query>`
 - `/session list`
 - `/session use <thread_id>`
 

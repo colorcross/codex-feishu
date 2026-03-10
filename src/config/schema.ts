@@ -13,6 +13,7 @@ export const projectSchema = z.object({
   mention_required: z.boolean().default(false),
   description: z.string().optional(),
   instructions_prefix: z.string().optional(),
+  knowledge_paths: z.array(z.string()).default([]),
 });
 
 export const bridgeConfigSchema = z.object({

@@ -137,3 +137,17 @@ pnpm demo:down
 - Codex App getting started：<https://developers.openai.com/codex/app/#getting-started>
 - Codex CLI reference：<https://developers.openai.com/codex/cli/reference/>
 - Codex config reference：<https://developers.openai.com/codex/config-reference/#configtoml>
+
+## 12. 现在支持在飞书里处理图片、文件、音频和项目文档吗？
+
+支持第一版：
+
+- 图片、文件、音频、富文本消息会被解析成结构化元数据，并带进 Codex 提示词
+- 项目内文档可以用 `/kb status` 和 `/kb search <query>` 搜索
+- 默认搜索项目根下的 `docs/`、`README.md`、`README.en.md`、`CHANGELOG.md`
+- 也可以在项目配置里用 `knowledge_paths` 自定义知识库目录
+
+边界也要明确：
+
+- 当前是“把多媒体元数据带进上下文”，不是直接把二进制文件上传给 Codex
+- 如果你要更深入的文档 / 知识库管理，下一步应该接飞书文档、知识库或外部检索后端，而不是继续堆 prompt

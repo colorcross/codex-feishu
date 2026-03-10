@@ -131,8 +131,8 @@ describe('bridge service', () => {
   it('runs different projects in parallel within the same Feishu chat', async () => {
     const setup = await createService({
       projects: {
-        'repo-a': { root: '/tmp/repo-a', session_scope: 'chat', mention_required: false },
-        'repo-b': { root: '/tmp/repo-b', session_scope: 'chat', mention_required: false },
+        'repo-a': { root: '/tmp/repo-a', session_scope: 'chat', mention_required: false, knowledge_paths: [] },
+        'repo-b': { root: '/tmp/repo-b', session_scope: 'chat', mention_required: false, knowledge_paths: [] },
       },
       service: { name: 'test-bridge', default_project: 'repo-a', reply_mode: 'text', emit_progress_updates: false, progress_update_interval_ms: 4000, metrics_host: '127.0.0.1', idempotency_ttl_seconds: 86400, session_history_limit: 20, log_tail_lines: 100, reply_quote_user_message: false, reply_quote_max_chars: 120 },
     });
@@ -157,6 +157,51 @@ describe('bridge service', () => {
 
     await Promise.all([first, second]);
     expect(runCodexTurnMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('injects attachment metadata into the Codex prompt for media messages', async () => {
+    const setup = await createService();
+    runCodexTurnMock.mockResolvedValue({
+      sessionId: 'thread-media',
+      finalMessage: 'processed media',
+      stderr: '',
+      exitCode: 0,
+      capabilities: { version: 'v', exec: {}, resume: {} },
+    });
+
+    await setup.service.handleIncomingMessage({
+      ...buildMessage('', { message_id: 'm-media' }),
+      message_type: 'image',
+      attachments: [{ kind: 'image', key: 'img_123', summary: 'image | key=img_123' }],
+      text: '',
+    });
+
+    expect(runCodexTurnMock).toHaveBeenCalledTimes(1);
+    expect(runCodexTurnMock.mock.calls[0]?.[0]?.prompt).toContain('Message attachments:');
+    expect(runCodexTurnMock.mock.calls[0]?.[0]?.prompt).toContain('image | key=img_123');
+  });
+
+  it('searches project knowledge base through /kb search', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-kb-service-'));
+    tempDirs.push(root);
+    await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(root, 'docs', 'guide.md'), 'Use codex-feishu init --mode global\n', 'utf8');
+
+    const setup = await createService({
+      projects: {
+        default: {
+          root,
+          session_scope: 'chat',
+          mention_required: false,
+          knowledge_paths: ['docs'],
+        },
+      },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('/kb search init', { message_id: 'm-kb' }));
+    const reply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(reply).toContain('知识库搜索: init');
+    expect(reply).toContain('docs/guide.md');
   });
 });
 
@@ -242,6 +287,7 @@ function buildConfig(dir: string, overrides: TestConfigOverrides): BridgeConfig 
         root: '/tmp/project',
         session_scope: 'chat',
         mention_required: false,
+        knowledge_paths: [],
       },
     },
   };
@@ -265,7 +311,9 @@ function buildMessage(text: string, overrides: Partial<Parameters<CodexFeishuSer
     chat_type: 'p2p' as const,
     actor_id: 'user',
     message_id: overrides.message_id ?? `m-${Math.random()}`,
+    message_type: 'text',
     text,
+    attachments: [],
     mentions: [],
     raw: {},
     ...overrides,

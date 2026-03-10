@@ -12,6 +12,8 @@ describe('bridge commands', () => {
     expect(parseBridgeCommand('/session new')).toEqual({ kind: 'session', action: 'new' });
     expect(parseBridgeCommand('/session drop')).toEqual({ kind: 'session', action: 'drop', threadId: undefined });
     expect(parseBridgeCommand('/cancel')).toEqual({ kind: 'cancel' });
+    expect(parseBridgeCommand('/kb status')).toEqual({ kind: 'kb', action: 'status' });
+    expect(parseBridgeCommand('/kb search install')).toEqual({ kind: 'kb', action: 'search', query: 'install' });
   });
 
   it('treats unknown slash commands as prompts', () => {
@@ -28,5 +30,6 @@ describe('bridge commands', () => {
     expect(helpText).toContain('/new');
     expect(helpText).toContain('/session list');
     expect(helpText).toContain('/cancel');
+    expect(helpText).toContain('/kb search');
   });
 });
