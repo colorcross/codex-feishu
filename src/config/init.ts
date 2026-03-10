@@ -1,0 +1,67 @@
+import path from 'node:path';
+import { PROJECT_CONFIG_RELATIVE_PATH, getGlobalConfigPath } from './paths.js';
+
+export type InitMode = 'global' | 'project';
+
+export function getInitTargetPath(mode: InitMode, cwd: string): string {
+  return mode === 'global' ? getGlobalConfigPath() : path.join(cwd, PROJECT_CONFIG_RELATIVE_PATH);
+}
+
+export function buildInitialConfig(mode: InitMode, cwd: string): string {
+  const defaultRoot = mode === 'project' ? '.' : cwd;
+  return `version = 1
+
+[service]
+default_project = "default"
+reply_mode = "text"
+emit_progress_updates = false
+progress_update_interval_ms = 4000
+metrics_host = "127.0.0.1"
+idempotency_ttl_seconds = 86400
+session_history_limit = 20
+log_tail_lines = 100
+reply_quote_user_message = true
+reply_quote_max_chars = 120
+# metrics_port = 9464
+
+[codex]
+bin = "codex"
+# shell = "/bin/zsh"
+# pre_exec = "proxy_on"
+default_sandbox = "workspace-write"
+skip_git_repo_check = true
+output_token_limit = 4000
+run_timeout_ms = 600000
+bridge_instructions = "Reply concisely for Feishu. Include changed files and verification when relevant."
+
+[storage]
+dir = "~/.codex-feishu/state"
+
+[security]
+allowed_project_roots = []
+require_group_mentions = true
+
+[feishu]
+app_id = "env:FEISHU_APP_ID"
+app_secret = "env:FEISHU_APP_SECRET"
+# dry_run = true
+# transport = "long-connection" for local-only messaging; use "webhook" when you need interactive card callbacks.
+transport = "long-connection"
+# encrypt_key = "env:FEISHU_ENCRYPT_KEY"
+# verification_token = "env:FEISHU_VERIFICATION_TOKEN"
+host = "0.0.0.0"
+port = 3333
+event_path = "/webhook/event"
+card_path = "/webhook/card"
+allowed_chat_ids = []
+allowed_group_ids = []
+
+[projects.default]
+root = "${defaultRoot}"
+session_scope = "chat"
+mention_required = true
+# profile = "default"
+# sandbox = "workspace-write"
+# description = "Main repo"
+`;
+}

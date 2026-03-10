@@ -1,0 +1,55 @@
+{
+  "name": "codex-feishu-bridge",
+  "version": "0.1.0",
+  "description": "Feishu bridge for Codex CLI with session routing, project-scoped config, and production-ready operations.",
+  "type": "module",
+  "bin": {
+    "codex-feishu": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "skills"
+  ],
+  "engines": {
+    "node": ">=20.10"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist .vitest coverage",
+    "demo:down": "bash scripts/dev-stack.sh down",
+    "demo:logs": "bash scripts/dev-stack.sh logs",
+    "demo:smoke": "bash scripts/dev-stack.sh smoke",
+    "demo:status": "bash scripts/dev-stack.sh status",
+    "demo:up": "bash scripts/dev-stack.sh up",
+    "dev": "tsx src/cli.ts",
+    "install:global": "bash scripts/install.sh",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "codex",
+    "feishu",
+    "lark",
+    "bridge",
+    "cli",
+    "agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "@larksuiteoapi/node-sdk": "^1.59.0",
+    "commander": "^14.0.1",
+    "pino": "^9.11.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

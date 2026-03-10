@@ -1,0 +1,48 @@
+version = 1
+
+[service]
+default_project = "repo-a"
+reply_mode = "text"
+emit_progress_updates = false
+progress_update_interval_ms = 4000
+idempotency_ttl_seconds = 86400
+session_history_limit = 20
+log_tail_lines = 100
+
+[codex]
+bin = "codex"
+# shell = "/bin/zsh"
+# pre_exec = "proxy_on"
+default_sandbox = "workspace-write"
+skip_git_repo_check = true
+run_timeout_ms = 600000
+bridge_instructions = "Reply in concise Chinese for Feishu."
+
+[storage]
+dir = "~/.codex-feishu/state"
+
+[security]
+allowed_project_roots = []
+require_group_mentions = true
+
+[feishu]
+app_id = "env:FEISHU_APP_ID"
+app_secret = "env:FEISHU_APP_SECRET"
+# dry_run = true
+transport = "long-connection"
+# switch to webhook in production if you need card callbacks
+# transport = "webhook"
+# encrypt_key = "env:FEISHU_ENCRYPT_KEY"
+# verification_token = "env:FEISHU_VERIFICATION_TOKEN"
+host = "0.0.0.0"
+port = 3333
+allowed_chat_ids = []
+allowed_group_ids = []
+
+[projects.repo-a]
+root = "/absolute/path/to/repo-a"
+profile = "default"
+session_scope = "chat-user"
+mention_required = true
+
+description = "Primary repository"

@@ -1,0 +1,10 @@
+version = 1
+
+[service]
+default_project = "default"
+
+[projects.default]
+root = "."
+profile = "default"
+session_scope = "chat"
+mention_required = false
