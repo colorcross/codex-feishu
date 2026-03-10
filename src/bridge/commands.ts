@@ -5,6 +5,7 @@ export type BridgeCommand =
   | { kind: 'new' }
   | { kind: 'cancel' }
   | { kind: 'kb'; action: 'search' | 'status'; query?: string }
+  | { kind: 'wiki'; action: 'spaces' | 'search' | 'read' | 'create' | 'rename'; value?: string; extra?: string }
   | { kind: 'project'; alias?: string }
   | { kind: 'session'; action: 'list' | 'use' | 'new' | 'drop'; threadId?: string }
   | { kind: 'prompt'; prompt: string };
@@ -32,6 +33,8 @@ export function parseBridgeCommand(input: string): BridgeCommand {
       return { kind: 'cancel' };
     case '/kb':
       return parseKnowledgeCommand(argument);
+    case '/wiki':
+      return parseWikiCommand(argument);
     case '/project':
       return { kind: 'project', alias: argument || undefined };
     case '/session':
@@ -61,6 +64,12 @@ export function buildHelpText(): string {
     '/cancel 取消当前项目正在运行的任务',
     '/kb status 查看当前项目知识库目录',
     '/kb search <query> 搜索项目文档/知识库',
+    '/wiki spaces 列出可访问的飞书知识空间',
+    '/wiki search <query> 搜索飞书知识库',
+    '/wiki read <url|token> 读取飞书文档纯文本摘要',
+    '/wiki create <title> 在默认知识空间创建文档',
+    '/wiki create <space_id> <title> 在指定知识空间创建文档',
+    '/wiki rename <node_token> <title> 更新知识库节点标题',
     '/session list 列出当前项目保存过的会话',
     '/session use <thread_id> 切换到指定会话',
     '/session new 让下一条消息新开会话',
@@ -99,5 +108,32 @@ function parseKnowledgeCommand(argument: string): BridgeCommand {
       return { kind: 'kb', action: 'search', query };
     default:
       return { kind: 'prompt', prompt: `/kb${argument ? ` ${argument}` : ''}`.trim() };
+  }
+}
+
+function parseWikiCommand(argument: string): BridgeCommand {
+  const [subcommand, ...rest] = argument.split(/\s+/).filter(Boolean);
+  const value = rest.join(' ').trim() || undefined;
+
+  switch (subcommand) {
+    case 'spaces':
+      return { kind: 'wiki', action: 'spaces' };
+    case 'search':
+      return { kind: 'wiki', action: 'search', value };
+    case 'read':
+      return { kind: 'wiki', action: 'read', value };
+    case 'create': {
+      if (rest.length <= 1) {
+        return { kind: 'wiki', action: 'create', value };
+      }
+      return { kind: 'wiki', action: 'create', value: rest.slice(1).join(' ').trim(), extra: rest[0] };
+    }
+    case 'rename': {
+      const token = rest[0];
+      const title = rest.slice(1).join(' ').trim() || undefined;
+      return { kind: 'wiki', action: 'rename', value: title, extra: token };
+    }
+    default:
+      return { kind: 'prompt', prompt: `/wiki${argument ? ` ${argument}` : ''}`.trim() };
   }
 }

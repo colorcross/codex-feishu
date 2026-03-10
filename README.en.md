@@ -28,6 +28,9 @@ Codex Feishu sends Feishu messages into resumable Codex sessions, keeps projects
 - Starts new Codex sessions with `codex exec` and resumes existing ones with `codex exec resume`
 - Supports `/kb status` and `/kb search <query>` for project-local documentation search
 - Carries image/file/audio/rich-text metadata into the Codex prompt for media-aware conversations
+- Supports `/wiki spaces`, `/wiki search <query>`, and `/wiki read <url|token>` for Feishu knowledge-base access
+- Supports `/wiki create <title>` and `/wiki create <space_id> <title>` for creating docx pages in Feishu wiki
+- Supports `/wiki rename <node_token> <title>` for retitling wiki nodes
 - Exposes operational commands such as `serve status`, `serve logs`, `serve ps`, and `doctor`
 - Keeps audit logs, idempotency state, run state, and Prometheus metrics local and inspectable
 
@@ -59,6 +62,11 @@ Common Feishu commands:
 - `/cancel`
 - `/kb status`
 - `/kb search <query>`
+- `/wiki spaces`
+- `/wiki search <query>`
+- `/wiki read <url|token>`
+- `/wiki create <title>`
+- `/wiki rename <node_token> <title>`
 - `/session list`
 - `/session use <thread_id>`
 

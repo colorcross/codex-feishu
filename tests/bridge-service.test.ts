@@ -131,8 +131,8 @@ describe('bridge service', () => {
   it('runs different projects in parallel within the same Feishu chat', async () => {
     const setup = await createService({
       projects: {
-        'repo-a': { root: '/tmp/repo-a', session_scope: 'chat', mention_required: false, knowledge_paths: [] },
-        'repo-b': { root: '/tmp/repo-b', session_scope: 'chat', mention_required: false, knowledge_paths: [] },
+        'repo-a': { root: '/tmp/repo-a', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+        'repo-b': { root: '/tmp/repo-b', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
       },
       service: { name: 'test-bridge', default_project: 'repo-a', reply_mode: 'text', emit_progress_updates: false, progress_update_interval_ms: 4000, metrics_host: '127.0.0.1', idempotency_ttl_seconds: 86400, session_history_limit: 20, log_tail_lines: 100, reply_quote_user_message: false, reply_quote_max_chars: 120 },
     });
@@ -194,6 +194,7 @@ describe('bridge service', () => {
           session_scope: 'chat',
           mention_required: false,
           knowledge_paths: ['docs'],
+          wiki_space_ids: [],
         },
       },
     });
@@ -202,6 +203,125 @@ describe('bridge service', () => {
     const reply = setup.sendText.mock.calls.at(-1)?.[1] as string;
     expect(reply).toContain('知识库搜索: init');
     expect(reply).toContain('docs/guide.md');
+  });
+
+  it('searches Feishu wiki documents through /wiki search', async () => {
+    const setup = await createService();
+    setup.feishuClient.createSdkClient.mockReturnValue({
+      wiki: {
+        v1: {
+          node: {
+            search: vi.fn().mockResolvedValue({
+              code: 0,
+              data: {
+                items: [
+                  {
+                    title: '部署手册',
+                    space_id: 'space-1',
+                    node_id: 'node-1',
+                    obj_token: 'doxcn123',
+                    url: 'https://example.feishu.cn/docx/doxcn123',
+                  },
+                ],
+              },
+            }),
+          },
+        },
+        v2: {
+          space: {
+            list: vi.fn().mockResolvedValue({
+              code: 0,
+              data: { items: [], has_more: false },
+            }),
+          },
+        },
+      },
+      docx: {
+        v1: {
+          document: {
+            get: vi.fn(),
+            rawContent: vi.fn(),
+          },
+        },
+      },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('/wiki search 部署', { message_id: 'm-wiki' }));
+    const reply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(reply).toContain('飞书知识库搜索: 部署');
+    expect(reply).toContain('部署手册');
+    expect(reply).toContain('doxcn123');
+  });
+
+  it('creates a Feishu wiki document through /wiki create', async () => {
+    const setup = await createService({
+      projects: {
+        default: {
+          root: '/tmp/project',
+          session_scope: 'chat',
+          mention_required: false,
+          knowledge_paths: [],
+          wiki_space_ids: ['space-1'],
+        },
+      },
+    });
+    setup.feishuClient.createSdkClient.mockReturnValue({
+      wiki: {
+        v2: {
+          spaceNode: {
+            create: vi.fn().mockResolvedValue({
+              code: 0,
+              data: {
+                node: {
+                  title: '部署手册',
+                  space_id: 'space-1',
+                  node_token: 'wikcn123',
+                  obj_token: 'doxcn123',
+                  obj_type: 'docx',
+                },
+              },
+            }),
+          },
+        },
+      },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('/wiki create 部署手册', { message_id: 'm-wiki-create' }));
+    const reply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(reply).toContain('已创建飞书文档: 部署手册');
+    expect(reply).toContain('空间: space-1');
+    expect(reply).toContain('文档: doxcn123');
+  });
+
+  it('renames a Feishu wiki node through /wiki rename', async () => {
+    const updateTitle = vi.fn().mockResolvedValue({ code: 0, data: {} });
+    const setup = await createService({
+      projects: {
+        default: {
+          root: '/tmp/project',
+          session_scope: 'chat',
+          mention_required: false,
+          knowledge_paths: [],
+          wiki_space_ids: ['space-1'],
+        },
+      },
+    });
+    setup.feishuClient.createSdkClient.mockReturnValue({
+      wiki: {
+        v2: {
+          spaceNode: {
+            updateTitle,
+          },
+        },
+      },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('/wiki rename wikcn123 新标题', { message_id: 'm-wiki-rename' }));
+    const reply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(reply).toContain('已更新知识库节点标题');
+    expect(reply).toContain('节点: wikcn123');
+    expect(reply).toContain('标题: 新标题');
+    expect(updateTitle).toHaveBeenCalled();
   });
 });
 
@@ -225,7 +345,8 @@ async function createService(overrides: TestConfigOverrides = {}) {
   const runStateStore = new RunStateStore(config.storage.dir);
   const sendText = vi.fn().mockResolvedValue({ message_id: 'm-1', open_message_id: 'm-1' });
   const sendCard = vi.fn().mockResolvedValue({ message_id: 'm-card', open_message_id: 'm-card' });
-  const feishuClient = { sendText, sendCard } as any;
+  const createSdkClient = vi.fn(() => ({}));
+  const feishuClient = { sendText, sendCard, createSdkClient } as any;
   const service = new CodexFeishuService(config, feishuClient, sessionStore, auditLog, logger, undefined, idempotencyStore, runStateStore);
 
   return {
@@ -233,6 +354,7 @@ async function createService(overrides: TestConfigOverrides = {}) {
     service,
     sendText,
     sendCard,
+    feishuClient,
     sessionStore,
     idempotencyStore,
     runStateStore,
@@ -288,6 +410,7 @@ function buildConfig(dir: string, overrides: TestConfigOverrides): BridgeConfig 
         session_scope: 'chat',
         mention_required: false,
         knowledge_paths: [],
+        wiki_space_ids: [],
       },
     },
   };

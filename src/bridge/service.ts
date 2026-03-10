@@ -16,6 +16,7 @@ import { IdempotencyStore } from '../state/idempotency-store.js';
 import { RunStateStore, type RunState } from '../state/run-state-store.js';
 import { isProcessAlive, terminateProcess } from '../runtime/process.js';
 import { resolveKnowledgeRoots, searchKnowledgeBase } from '../knowledge/search.js';
+import { FeishuWikiClient } from '../feishu/wiki.js';
 
 interface ActiveRunHandle {
   runId: string;
@@ -119,6 +120,9 @@ export class CodexFeishuService {
         return;
       case 'kb':
         await this.handleKnowledgeCommand(context, selectionKey, command.action, command.query);
+        return;
+      case 'wiki':
+        await this.handleWikiCommand(context, selectionKey, command.action, command.value, command.extra);
         return;
       case 'session':
         await this.handleSessionCommand(context, selectionKey, command.action, command.threadId);
@@ -676,6 +680,174 @@ export class CodexFeishuService {
     await this.sendTextReply(
       context.chat_id,
       [`项目: ${projectContext.projectAlias}`, `知识库搜索: ${query}`, '', ...lines].join('\n'),
+      context.message_id,
+      context.text,
+    );
+  }
+
+  private async handleWikiCommand(
+    context: IncomingMessageContext,
+    selectionKey: string,
+    action: 'spaces' | 'search' | 'read' | 'create' | 'rename',
+    value?: string,
+    extra?: string,
+  ): Promise<void> {
+    const projectContext = await this.resolveProjectContext(context, selectionKey);
+    const wikiClient = new FeishuWikiClient(this.feishuClient.createSdkClient());
+
+    if (action === 'spaces') {
+      const spaces = await wikiClient.listSpaces(10);
+      const lines = spaces.length > 0
+        ? spaces.map((space) => `- ${space.name} (${space.id})${space.description ? ` | ${space.description}` : ''}`)
+        : ['当前应用可访问的知识空间为空。请确认机器人已被加入目标空间。'];
+      await this.sendTextReply(
+        context.chat_id,
+        [`项目: ${projectContext.projectAlias}`, `配置过滤空间数: ${projectContext.project.wiki_space_ids.length}`, '', ...lines].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    if (action === 'search') {
+      if (!value) {
+        await this.sendTextReply(context.chat_id, '用法: /wiki search <query>', context.message_id, context.text);
+        return;
+      }
+      const hits = await wikiClient.search(value, projectContext.project.wiki_space_ids, 5);
+      await this.auditLog.append({
+        type: 'wiki.search',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        project_alias: projectContext.projectAlias,
+        query: value,
+        result_count: hits.length,
+      });
+      if (hits.length === 0) {
+        await this.sendTextReply(
+          context.chat_id,
+          [`项目: ${projectContext.projectAlias}`, `飞书知识库搜索: ${value}`, '未找到匹配结果。', '', '提示: 确认机器人有目标空间访问权限，或在项目配置里设置 wiki_space_ids。'].join('\n'),
+          context.message_id,
+          context.text,
+        );
+        return;
+      }
+      const lines = hits.map((hit, index) =>
+        [
+          `${index + 1}. ${hit.title}`,
+          `   space: ${hit.spaceId}`,
+          `   token: ${hit.objToken}`,
+          ...(hit.url ? [`   url: ${hit.url}`] : []),
+        ].join('\n'),
+      );
+      await this.sendTextReply(
+        context.chat_id,
+        [`项目: ${projectContext.projectAlias}`, `飞书知识库搜索: ${value}`, '', ...lines].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    if (action === 'create') {
+      const defaultSpaceId = projectContext.project.wiki_space_ids[0];
+      const spaceId = extra ?? defaultSpaceId;
+      const title = value?.trim();
+      if (!title) {
+        await this.sendTextReply(context.chat_id, '用法: /wiki create <title> 或 /wiki create <space_id> <title>', context.message_id, context.text);
+        return;
+      }
+      if (!spaceId) {
+        await this.sendTextReply(
+          context.chat_id,
+          '当前项目未配置默认 wiki_space_ids，请使用 `/wiki create <space_id> <title>`。',
+          context.message_id,
+          context.text,
+        );
+        return;
+      }
+
+      const created = await wikiClient.createDoc(spaceId, title);
+      await this.auditLog.append({
+        type: 'wiki.create',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        project_alias: projectContext.projectAlias,
+        title,
+        space_id: created.spaceId,
+        obj_token: created.objToken,
+        node_token: created.nodeToken,
+      });
+      await this.sendTextReply(
+        context.chat_id,
+        [
+          `项目: ${projectContext.projectAlias}`,
+          `已创建飞书文档: ${created.title ?? title}`,
+          `空间: ${created.spaceId ?? spaceId}`,
+          ...(created.nodeToken ? [`节点: ${created.nodeToken}`] : []),
+          ...(created.objToken ? [`文档: ${created.objToken}`] : []),
+        ].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    if (action === 'rename') {
+      const nodeToken = extra?.trim();
+      const title = value?.trim();
+      if (!nodeToken || !title) {
+        await this.sendTextReply(context.chat_id, '用法: /wiki rename <node_token> <title>', context.message_id, context.text);
+        return;
+      }
+
+      await wikiClient.renameNode(nodeToken, title, projectContext.project.wiki_space_ids[0]);
+      await this.auditLog.append({
+        type: 'wiki.rename',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        project_alias: projectContext.projectAlias,
+        node_token: nodeToken,
+        title,
+      });
+      await this.sendTextReply(
+        context.chat_id,
+        [`项目: ${projectContext.projectAlias}`, `已更新知识库节点标题`, `节点: ${nodeToken}`, `标题: ${title}`].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    if (!value) {
+      await this.sendTextReply(context.chat_id, '用法: /wiki read <url|token>', context.message_id, context.text);
+      return;
+    }
+
+    const result = await wikiClient.read(value);
+    await this.auditLog.append({
+      type: 'wiki.read',
+      chat_id: context.chat_id,
+      actor_id: context.actor_id,
+      project_alias: projectContext.projectAlias,
+      target: value,
+      obj_type: result.objType,
+      obj_token: result.objToken,
+    });
+
+    const summary = result.content ? truncateExcerpt(result.content.replace(/\s+/g, ' ').trim(), 1200) : '当前对象不是 docx 文档，暂不支持直接拉取纯文本内容。';
+    await this.sendTextReply(
+      context.chat_id,
+      [
+        `项目: ${projectContext.projectAlias}`,
+        `标题: ${result.title ?? '未知'}`,
+        `类型: ${result.objType ?? '未知'}`,
+        ...(result.spaceId ? [`空间: ${result.spaceId}`] : []),
+        ...(result.objToken ? [`对象: ${result.objToken}`] : []),
+        ...(result.url ? [`链接: ${result.url}`] : []),
+        '',
+        summary,
+      ].join('\n'),
       context.message_id,
       context.text,
     );

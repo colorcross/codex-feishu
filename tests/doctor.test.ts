@@ -88,6 +88,7 @@ describe('doctor', () => {
           session_scope: 'chat',
           mention_required: false,
           knowledge_paths: [],
+          wiki_space_ids: [],
         },
       },
     };

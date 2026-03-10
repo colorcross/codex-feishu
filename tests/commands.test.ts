@@ -14,6 +14,30 @@ describe('bridge commands', () => {
     expect(parseBridgeCommand('/cancel')).toEqual({ kind: 'cancel' });
     expect(parseBridgeCommand('/kb status')).toEqual({ kind: 'kb', action: 'status' });
     expect(parseBridgeCommand('/kb search install')).toEqual({ kind: 'kb', action: 'search', query: 'install' });
+    expect(parseBridgeCommand('/wiki spaces')).toEqual({ kind: 'wiki', action: 'spaces' });
+    expect(parseBridgeCommand('/wiki search 发布流程')).toEqual({ kind: 'wiki', action: 'search', value: '发布流程' });
+    expect(parseBridgeCommand('/wiki read https://example.feishu.cn/docx/doxcn123')).toEqual({
+      kind: 'wiki',
+      action: 'read',
+      value: 'https://example.feishu.cn/docx/doxcn123',
+    });
+    expect(parseBridgeCommand('/wiki create 部署手册')).toEqual({
+      kind: 'wiki',
+      action: 'create',
+      value: '部署手册',
+    });
+    expect(parseBridgeCommand('/wiki create space_xxx 部署手册')).toEqual({
+      kind: 'wiki',
+      action: 'create',
+      value: '部署手册',
+      extra: 'space_xxx',
+    });
+    expect(parseBridgeCommand('/wiki rename wikcn123 新标题')).toEqual({
+      kind: 'wiki',
+      action: 'rename',
+      value: '新标题',
+      extra: 'wikcn123',
+    });
   });
 
   it('treats unknown slash commands as prompts', () => {
@@ -31,5 +55,8 @@ describe('bridge commands', () => {
     expect(helpText).toContain('/session list');
     expect(helpText).toContain('/cancel');
     expect(helpText).toContain('/kb search');
+    expect(helpText).toContain('/wiki search');
+    expect(helpText).toContain('/wiki create');
+    expect(helpText).toContain('/wiki rename');
   });
 });

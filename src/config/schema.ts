@@ -14,6 +14,7 @@ export const projectSchema = z.object({
   description: z.string().optional(),
   instructions_prefix: z.string().optional(),
   knowledge_paths: z.array(z.string()).default([]),
+  wiki_space_ids: z.array(z.string()).default([]),
 });
 
 export const bridgeConfigSchema = z.object({

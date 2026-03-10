@@ -22,6 +22,7 @@ describe('knowledge search', () => {
       session_scope: 'chat' as const,
       mention_required: false,
       knowledge_paths: ['docs'],
+      wiki_space_ids: [],
     };
 
     const roots = await resolveKnowledgeRoots(project);

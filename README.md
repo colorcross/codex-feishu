@@ -42,6 +42,9 @@ Codex Feishu 让飞书消息直接进入可续接的 Codex 会话。项目可路
 - 飞书命令控制：`/status`、`/new`、`/cancel`、`/session list|use|new|drop`
 - 项目知识库搜索：`/kb status`、`/kb search <query>`
 - 多媒体上下文透传：图片、文件、音频、富文本消息会带元数据进入 Codex 提示词
+- 飞书知识库接入：`/wiki spaces`、`/wiki search <query>`、`/wiki read <url|token>`
+- 飞书知识库创建：`/wiki create <title>`、`/wiki create <space_id> <title>`
+- 飞书知识库节点改名：`/wiki rename <node_token> <title>`
 - 多会话历史和当前激活 session 持久化
 - 消息幂等去重，避免飞书重投或自激回环
 - 原生飞书消息回复 UI，优先 reply 触发消息
@@ -133,6 +136,11 @@ codex-feishu serve --detach
 - `/cancel`
 - `/kb status`
 - `/kb search <query>`
+- `/wiki spaces`
+- `/wiki search <query>`
+- `/wiki read <url|token>`
+- `/wiki create <title>`
+- `/wiki rename <node_token> <title>`
 - `/session list`
 - `/session use <thread_id>`
 
@@ -172,6 +180,13 @@ root = "/Users/dh/workspace/repo-a"
 session_scope = "chat"
 mention_required = true
 knowledge_paths = ["docs", "README.md"]
+wiki_space_ids = ["space_xxx"]
+```
+
+如果已配置 `wiki_space_ids`，下面这条会在默认知识空间直接创建一篇 docx 文档：
+
+```text
+/wiki create 发布手册
 ```
 
 ## 飞书端交互模型
