@@ -16,6 +16,7 @@
 
 - Discussions: <https://github.com/colorcross/codex-feishu/discussions>
 - Issues: <https://github.com/colorcross/codex-feishu/issues>
+- Support: [../SUPPORT.md](../SUPPORT.md)
 - Security: <https://github.com/colorcross/codex-feishu/security/policy>
 
 ## 提问前建议

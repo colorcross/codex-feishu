@@ -1,0 +1,80 @@
+name: Issue Triage
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+      - reopened
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to triage'
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Apply issue labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { classifyIssue, diffManagedLabels } = require('./.github/scripts/issue-triage.cjs');
+
+            let issue;
+            if (context.eventName === 'workflow_dispatch') {
+              const issueNumber = Number(core.getInput('issue_number'));
+              const response = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+              });
+              issue = response.data;
+            } else {
+              issue = context.payload.issue;
+            }
+
+            const existingLabels = issue.labels.map((label) => typeof label === 'string' ? label : label.name);
+            const nextLabels = classifyIssue({
+              title: issue.title || '',
+              body: issue.body || '',
+              existingLabels,
+            });
+            const { add, remove } = diffManagedLabels(existingLabels, nextLabels);
+
+            if (add.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: add,
+              });
+            }
+
+            for (const label of remove) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  name: label,
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+            }
+
+            core.info(`Applied labels: ${add.join(', ') || 'none'}`);
+            core.info(`Removed labels: ${remove.join(', ') || 'none'}`);

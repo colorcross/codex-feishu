@@ -1,5 +1,7 @@
 # 文档首页
 
+[English Docs Index](README.en.md)
+
 这份文档面向两类读者：
 
 - 想把项目拉起来直接用的人
@@ -75,4 +77,5 @@
 - [README](../README.md)
 - [CHANGELOG](../CHANGELOG.md)
 - [CONTRIBUTING](../CONTRIBUTING.md)
+- [SUPPORT](../SUPPORT.md)
 - [SECURITY](../SECURITY.md)

@@ -1,0 +1,60 @@
+area/feishu:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/feishu/**'
+
+area/codex:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/codex/**'
+          - 'skills/**'
+
+area/session:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/bridge/**'
+          - 'src/state/**'
+
+area/ops:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/observability/**'
+          - 'src/runtime/**'
+          - 'src/service/**'
+          - 'examples/alertmanager.yml'
+          - 'examples/alerts.yml'
+          - 'examples/prometheus.yml'
+          - 'examples/docker-compose.observability.yml'
+          - 'scripts/dev-stack.sh'
+
+area/install:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'scripts/install.sh'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - 'examples/config*.toml'
+
+area/website:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'website/**'
+          - '.github/assets/**'
+          - '.github/workflows/pages.yml'
+          - 'docs/website.md'
+
+area/release:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'CHANGELOG.md'
+          - '.github/workflows/release.yml'
+
+area/docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'README.md'
+          - 'README.en.md'
+          - 'CONTRIBUTING.md'
+          - 'SECURITY.md'
+          - 'SUPPORT.md'
+          - 'docs/**'

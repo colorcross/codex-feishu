@@ -47,18 +47,13 @@ Common Feishu commands:
 
 ## Documentation
 
-Most detailed docs are currently written in Chinese:
-
-- [Getting started](docs/getting-started.md)
-- [Architecture](docs/architecture.md)
-- [Deployment](docs/deployment.md)
-- [Security and operations](docs/security.md)
-- [FAQ](docs/faq.md)
-- [Community and support](docs/community.md)
+- [English docs index](docs/README.en.md)
+- [Chinese docs index](docs/README.md)
 - [Changelog](CHANGELOG.md)
 
 ## Community
 
 - Usage questions and deployment discussions: GitHub Discussions
 - Reproducible defects and scoped feature work: GitHub Issues
+- Support guide: [SUPPORT.md](SUPPORT.md)
 - Security reports: follow [SECURITY](SECURITY.md)

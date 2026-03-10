@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Support Guide
+    url: https://github.com/colorcross/codex-feishu/blob/main/SUPPORT.md
+    about: Use the support guide to choose between docs, discussions, issues, and security reporting.
   - name: GitHub Discussions
     url: https://github.com/colorcross/codex-feishu/discussions
     about: Ask usage questions, deployment questions, or product-level discussions.

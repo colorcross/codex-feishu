@@ -207,6 +207,7 @@ website/    官网静态站点，可直接用于 GitHub Pages
 - [官网部署说明](docs/website.md)
 - [变更记录](CHANGELOG.md)
 - [贡献指南](CONTRIBUTING.md)
+- [支持入口](SUPPORT.md)
 - [安全披露](SECURITY.md)
 
 ## 官网
