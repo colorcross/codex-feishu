@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.1.1 - 2026-03-10
+
+### Highlights
+
+- 完成 GitHub 开源发布收口，补齐 README、文档首页、FAQ、贡献指南和安全披露文档。
+- 新增 `website/` 静态官网，并通过 GitHub Pages 自动发布到 `https://colorcross.github.io/codex-feishu/`。
+- 增加 GitHub Pages workflow 与仓库元信息，使仓库首页、Release、官网三处入口保持一致。
+
+### Included
+
+- GitHub README 重写，补齐项目定位、安装方式、文档导航和官网入口
+- 新增开源配套文档：
+  - `docs/README.md`
+  - `docs/getting-started.md`
+  - `docs/faq.md`
+  - `docs/website.md`
+  - `CONTRIBUTING.md`
+  - `SECURITY.md`
+- 新增官网静态站点：
+  - `website/index.html`
+  - `website/styles.css`
+  - `website/favicon.svg`
+- 新增 GitHub Actions workflow：
+  - `.github/workflows/pages.yml`
+
+### Verification
+
+- `pnpm build`
+- 文档/官网链接检查通过
+- GitHub Pages workflow 发布成功
+
 ## v0.1.0 - 2026-03-10
 
 ### Highlights
@@ -73,4 +104,3 @@
 
 - `21` 个测试文件通过
 - `59` 个测试用例通过
-

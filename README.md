@@ -236,10 +236,10 @@ pnpm demo:down
 
 ## 发布
 
-当前版本：`v0.1.0`
+当前版本：`v0.1.1`
 
 - [CHANGELOG.md](CHANGELOG.md)
-- 本地 tag：`v0.1.0`
+- 当前发布 tag：`v0.1.1`
 
 ## License
 
