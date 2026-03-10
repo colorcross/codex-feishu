@@ -1,0 +1,81 @@
+name: Bug Report
+description: Report a reproducible defect in Codex Feishu Bridge
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check the README, FAQ, and existing issues.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken and why does it matter?
+      placeholder: A concise description of the defect.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide exact steps, commands, and message flow.
+      placeholder: |
+        1. Start the bridge with...
+        2. Send a message in Feishu...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: What actually happened?
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Feishu transport
+      options:
+        - long-connection
+        - webhook
+        - both
+        - unknown
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Share versions and deployment details.
+      placeholder: |
+        OS:
+        Node.js:
+        codex:
+        codex-feishu:
+        deployment mode:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste only the relevant excerpt. Redact secrets.
+      render: shell
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and docs first.
+          required: true
+        - label: I removed secrets or tokens from logs and screenshots.
+          required: true

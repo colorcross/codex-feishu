@@ -12,7 +12,8 @@
 3. [安全与运维](security.md)
 4. [架构设计](architecture.md)
 5. [FAQ](faq.md)
-6. [官网部署说明](website.md)
+6. [社区与支持](community.md)
+7. [官网部署说明](website.md)
 
 ## 文档地图
 
@@ -54,6 +55,13 @@
   - 怎么管理多个 session
   - 怎么收敛 `chat_id` 白名单
   - 怎么启用 `proxy_on`
+
+### 社区协作
+
+- [社区与支持](community.md)
+  - 什么时候用 Discussions
+  - 什么时候开 Issues
+  - 怎么带最小复现信息
 
 ### 项目对外页面
 

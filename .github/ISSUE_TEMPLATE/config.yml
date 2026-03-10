@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/colorcross/codex-feishu/discussions
+    about: Ask usage questions, deployment questions, or product-level discussions.
+  - name: Documentation
+    url: https://github.com/colorcross/codex-feishu/tree/main/docs
+    about: Read the docs before filing an issue.

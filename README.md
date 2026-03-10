@@ -17,6 +17,7 @@
 - 官网：<https://colorcross.github.io/codex-feishu/>
 - Releases：<https://github.com/colorcross/codex-feishu/releases>
 - Issues：<https://github.com/colorcross/codex-feishu/issues>
+- Discussions：<https://github.com/colorcross/codex-feishu/discussions>
 
 ## 为什么存在
 
@@ -200,6 +201,7 @@ website/    官网静态站点，可直接用于 GitHub Pages
 - [部署说明](docs/deployment.md)
 - [安全与运维](docs/security.md)
 - [FAQ](docs/faq.md)
+- [社区与支持](docs/community.md)
 - [官网部署说明](docs/website.md)
 - [变更记录](CHANGELOG.md)
 - [贡献指南](CONTRIBUTING.md)
@@ -216,6 +218,12 @@ GitHub Pages 目标地址：
 - <https://colorcross.github.io/codex-feishu/>
 
 如果你已经把代码推到 GitHub，Pages workflow 会在 `main` 分支更新后自动发布 `website/` 目录。
+
+## 社区与支持
+
+- 使用问题和部署讨论：GitHub Discussions
+- 明确缺陷和可实现需求：GitHub Issues
+- 安全问题：按 [SECURITY](SECURITY.md) 里的方式私下披露
 
 ## 开发与验证
 

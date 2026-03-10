@@ -5,6 +5,7 @@
 - `website/index.html`
 - `website/styles.css`
 - `website/favicon.svg`
+- `website/social-preview.png`
 
 它不依赖构建工具，可以直接托管到任意静态服务。
 
@@ -15,6 +16,20 @@
 推荐 GitHub Pages 地址：
 
 - <https://colorcross.github.io/codex-feishu/>
+
+## 社交预览图
+
+仓库内已经生成默认社交预览图：
+
+- `website/social-preview.png`
+- `.github/assets/social-preview.png`
+
+GitHub 仓库的 Social preview 仍需要在网页端手动上传：
+
+1. 打开仓库 `Settings`
+2. 进入 `General`
+3. 找到 `Social preview`
+4. 上传 `website/social-preview.png` 或 `.github/assets/social-preview.png`
 
 ## 本地预览
 
