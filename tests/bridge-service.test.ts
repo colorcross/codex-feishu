@@ -306,6 +306,83 @@ describe('bridge service', () => {
     expect(runCodexTurnMock.mock.calls[1]?.[0]?.workdir).toBe('/tmp/shared-repo');
   });
 
+  it('shows project-level queued status when the same chat submits another run for the same project', async () => {
+    const setup = await createService();
+
+    const resolvers: Array<(value: unknown) => void> = [];
+    runCodexTurnMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+
+    const first = setup.service.handleIncomingMessage(buildMessage('run first', { message_id: 'm-queue-project-1' }));
+    await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(1));
+
+    const second = setup.service.handleIncomingMessage(buildMessage('run second', { message_id: 'm-queue-project-2' }));
+    await waitFor(() =>
+      expect(
+        setup.sendText.mock.calls.some(
+          ([chatId, body]) =>
+            chatId === 'chat' &&
+            typeof body === 'string' &&
+            body.includes('状态: queued') &&
+            body.includes('当前项目 default 已有任务在处理，已进入排队。'),
+        ),
+      ).toBe(true),
+    );
+
+    resolvers.shift()?.({ sessionId: 'thread-first', finalMessage: 'done-first', stderr: '', exitCode: 0, capabilities: { version: 'v', exec: {}, resume: {} } });
+    await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(2));
+    resolvers.shift()?.({ sessionId: 'thread-second', finalMessage: 'done-second', stderr: '', exitCode: 0, capabilities: { version: 'v', exec: {}, resume: {} } });
+
+    await Promise.all([first, second]);
+  });
+
+  it('shows root-lock queued status and exposes it in /status', async () => {
+    const setup = await createService({
+      projects: {
+        default: { root: '/tmp/shared-repo', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+      },
+    });
+
+    const resolvers: Array<(value: unknown) => void> = [];
+    runCodexTurnMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+
+    const first = setup.service.handleIncomingMessage(buildMessage('run shared a', { chat_id: 'chat-a', message_id: 'm-root-queue-a' }));
+    await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(1));
+
+    const second = setup.service.handleIncomingMessage(buildMessage('run shared b', { chat_id: 'chat-b', message_id: 'm-root-queue-b' }));
+    await waitFor(() =>
+      expect(
+        setup.sendText.mock.calls.some(
+          ([chatId, body]) =>
+            chatId === 'chat-b' &&
+            typeof body === 'string' &&
+            body.includes('状态: queued') &&
+            body.includes('当前仓库正在被其他会话操作，已进入排队。'),
+        ),
+      ).toBe(true),
+    );
+
+    await setup.service.handleIncomingMessage(buildMessage('/status', { chat_id: 'chat-b', message_id: 'm-root-queue-status' }));
+    const statusReply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(statusReply).toContain('(queued)');
+    expect(statusReply).toContain('当前仓库正在被其他会话操作，已进入排队。');
+
+    resolvers.shift()?.({ sessionId: 'thread-shared-a', finalMessage: 'done-a', stderr: '', exitCode: 0, capabilities: { version: 'v', exec: {}, resume: {} } });
+    await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(2));
+    resolvers.shift()?.({ sessionId: 'thread-shared-b', finalMessage: 'done-b', stderr: '', exitCode: 0, capabilities: { version: 'v', exec: {}, resume: {} } });
+
+    await Promise.all([first, second]);
+  });
+
   it('shares project binding by chat_id in groups and lets /project update the binding', async () => {
     const setup = await createService({
       projects: {

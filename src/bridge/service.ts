@@ -31,6 +31,17 @@ interface ActiveRunHandle {
   cancelReason?: 'user' | 'timeout' | 'recovery';
 }
 
+interface QueuedExecutionNotice {
+  runId: string;
+  detail: string;
+  reason: 'project' | 'project-root';
+}
+
+interface ScheduledProjectExecution {
+  queued: QueuedExecutionNotice | null;
+  completion: Promise<void>;
+}
+
 export class CodexFeishuService {
   private readonly queue = new TaskQueue();
   private readonly projectRootQueue = new TaskQueue();
@@ -202,20 +213,38 @@ export class CodexFeishuService {
         }
         await this.sessionStore.selectProject(selectionKey, projectContext.projectAlias);
 
-        await this.enqueueProjectExecution(projectContext, async () => {
-          await this.executePrompt({
+        const scheduled = await this.scheduleProjectExecution(
+          projectContext,
+          {
             chatId: context.chat_id,
             actorId: context.actor_id,
-            tenantKey: context.tenant_key,
-            projectAlias: projectContext.projectAlias,
-            project: projectContext.project,
             prompt,
-            incomingMessage: resolvedContext,
-            sessionKey: projectContext.sessionKey,
-            queueKey: projectContext.queueKey,
-            replyToMessageId: context.message_id,
-          });
-        });
+          },
+          async (runId) => {
+            await this.executePrompt({
+              runId,
+              chatId: context.chat_id,
+              actorId: context.actor_id,
+              tenantKey: context.tenant_key,
+              projectAlias: projectContext.projectAlias,
+              project: projectContext.project,
+              prompt,
+              incomingMessage: resolvedContext,
+              sessionKey: projectContext.sessionKey,
+              queueKey: projectContext.queueKey,
+              replyToMessageId: context.message_id,
+            });
+          },
+        );
+        if (scheduled.queued) {
+          await this.sendTextReply(
+            context.chat_id,
+            this.buildQueuedReplyText(projectContext.projectAlias, scheduled.queued),
+            context.message_id,
+            context.text,
+          );
+        }
+        await scheduled.completion;
       }
     }
   }
@@ -299,48 +328,59 @@ export class CodexFeishuService {
           includeActions: false,
         });
       }
-      void this.enqueueProjectExecution(
+      const scheduled = await this.scheduleProjectExecution(
         {
           projectAlias,
           project,
           sessionKey,
           queueKey,
         },
-        async () => {
+        {
+          chatId,
+          actorId: context.actor_id,
+          prompt: previousPrompt,
+        },
+        async (runId) => {
           await this.executePrompt({
+            runId,
             chatId,
             actorId: context.actor_id,
-          tenantKey: context.tenant_key,
-          projectAlias,
-          project,
-          incomingMessage: {
-            tenant_key: context.tenant_key,
-            chat_id: chatId,
-            chat_type: 'unknown',
-            actor_id: context.actor_id,
-            message_id: context.open_message_id ?? `card-rerun-${Date.now()}`,
-            message_type: 'card-action',
-            text: previousPrompt,
-            attachments: [],
-            mentions: [],
-            raw: context.raw,
-          },
+            tenantKey: context.tenant_key,
+            projectAlias,
+            project,
+            incomingMessage: {
+              tenant_key: context.tenant_key,
+              chat_id: chatId,
+              chat_type: 'unknown',
+              actor_id: context.actor_id,
+              message_id: context.open_message_id ?? `card-rerun-${Date.now()}`,
+              message_type: 'card-action',
+              text: previousPrompt,
+              attachments: [],
+              mentions: [],
+              raw: context.raw,
+            },
             prompt: previousPrompt,
             sessionKey,
             queueKey,
           });
         },
       );
+      void scheduled.completion.catch((error) => {
+        this.logger.error({ error, projectAlias }, 'Queued rerun execution failed unexpectedly');
+      });
       return buildStatusCard({
-        title: '已提交重试',
-        summary: '桥接器正在重新执行上一轮，结果会通过消息回传。',
+        title: scheduled.queued ? '已加入排队' : '已提交重试',
+        summary: scheduled.queued?.detail ?? '桥接器正在重新执行上一轮，结果会通过消息回传。',
         projectAlias,
         sessionId: conversation.projects[projectAlias]?.thread_id,
+        runId: scheduled.queued?.runId,
+        runStatus: scheduled.queued ? 'queued' : undefined,
         includeActions: false,
       });
     }
 
-    return this.buildStatusCardFromConversation(projectAlias, sessionKey, conversation, await this.runStateStore.getActiveRun(queueKey));
+    return this.buildStatusCardFromConversation(projectAlias, sessionKey, conversation, await this.runStateStore.getLatestVisibleRun(queueKey));
   }
 
   public async listRuns(): Promise<RunState[]> {
@@ -348,6 +388,7 @@ export class CodexFeishuService {
   }
 
   private async executePrompt(input: {
+    runId?: string;
     chatId: string;
     actorId?: string;
     tenantKey?: string;
@@ -384,7 +425,8 @@ export class CodexFeishuService {
       : { pinnedMemories: [], relevantMemories: [], pinnedGroupMemories: [], relevantGroupMemories: [] };
     const bridgePrompt = await this.buildBridgePrompt(input.projectAlias, input.project, input.incomingMessage, input.prompt, memoryContext);
     const startedAt = Date.now();
-    const runId = randomUUID();
+    const projectRoot = this.resolveProjectRoot(input.project);
+    const runId = input.runId ?? randomUUID();
     let lastProgressUpdate = 0;
     const activeRun: ActiveRunHandle = {
       runId,
@@ -399,8 +441,10 @@ export class CodexFeishuService {
       chat_id: input.chatId,
       actor_id: input.actorId,
       session_id: currentSession?.thread_id,
+      project_root: projectRoot,
       prompt_excerpt: truncateExcerpt(input.prompt),
       status: 'running',
+      status_detail: undefined,
     });
     await this.auditLog.append({
       type: 'codex.run.started',
@@ -438,8 +482,10 @@ export class CodexFeishuService {
             chat_id: input.chatId,
             actor_id: input.actorId,
             session_id: currentSession?.thread_id,
+            project_root: projectRoot,
             prompt_excerpt: truncateExcerpt(input.prompt),
             status: 'running',
+            status_detail: undefined,
             pid,
           });
         },
@@ -513,9 +559,11 @@ export class CodexFeishuService {
         chat_id: input.chatId,
         actor_id: input.actorId,
         session_id: result.sessionId,
+        project_root: projectRoot,
         pid: activeRun.pid,
         prompt_excerpt: truncateExcerpt(input.prompt),
         status: 'success',
+        status_detail: undefined,
       });
       this.metrics?.recordCodexTurn('success', input.projectAlias, (Date.now() - startedAt) / 1000, runId);
 
@@ -580,9 +628,11 @@ export class CodexFeishuService {
         chat_id: input.chatId,
         actor_id: input.actorId,
         session_id: currentSession?.thread_id,
+        project_root: projectRoot,
         pid: activeRun.pid,
         prompt_excerpt: truncateExcerpt(input.prompt),
         status,
+        status_detail: undefined,
         error: message,
       });
       await this.auditLog.append({
@@ -692,7 +742,7 @@ export class CodexFeishuService {
       return;
     }
 
-    const activeRun = await this.runStateStore.getActiveRun(projectContext.queueKey);
+    const activeRun = await this.runStateStore.getLatestVisibleRun(projectContext.queueKey);
     if (this.config.service.reply_mode === 'card' && this.config.feishu.transport === 'webhook') {
       await this.sendCardReply(
         context.chat_id,
@@ -1721,6 +1771,7 @@ export class CodexFeishuService {
       `项目记忆数: ${memoryCount}`,
       `最近更新时间: ${session?.updated_at ?? conversation.updated_at}`,
       `当前运行: ${activeRun ? `${activeRun.run_id} (${activeRun.status})` : '无'}`,
+      ...(activeRun?.status === 'queued' && activeRun.status_detail ? ['', activeRun.status_detail] : []),
       '',
       threadSummary?.summary ?? session?.last_response_excerpt ?? '暂无回复摘要。',
     ].join('\n');
@@ -1729,9 +1780,10 @@ export class CodexFeishuService {
   private buildStatusCardFromConversation(projectAlias: string, sessionKey: string, conversation: ConversationState, activeRun?: RunState | null): Record<string, unknown> {
     const session = conversation.projects[projectAlias];
     const sessionCount = Object.keys(session?.sessions ?? {}).length;
+    const isExecutableRun = activeRun ? isExecutionRunStatus(activeRun.status) : false;
     return buildStatusCard({
       title: '当前会话状态',
-      summary: session?.last_response_excerpt ?? '暂无会话摘要。',
+      summary: this.buildRunStatusSummary(session?.last_response_excerpt, activeRun),
       projectAlias,
       sessionId: session?.thread_id,
       runId: activeRun?.run_id,
@@ -1752,7 +1804,7 @@ export class CodexFeishuService {
         project_alias: projectAlias,
         chat_id: conversation.chat_id,
       },
-      cancelPayload: activeRun
+      cancelPayload: isExecutableRun
         ? {
             action: 'cancel',
             conversation_key: sessionKey,
@@ -1970,18 +2022,121 @@ export class CodexFeishuService {
     return terminateProcess(persisted.pid, 'SIGTERM');
   }
 
-  private async enqueueProjectExecution(
+  private async scheduleProjectExecution(
     projectContext: {
       projectAlias: string;
       project: ProjectConfig;
       sessionKey: string;
       queueKey: string;
     },
-    task: () => Promise<void>,
-  ): Promise<void> {
-    await this.queue.run(projectContext.queueKey, async () => {
-      await this.projectRootQueue.run(buildProjectRootQueueKey(projectContext.project.root), task);
+    metadata: {
+      chatId: string;
+      actorId?: string;
+      prompt: string;
+    },
+    task: (runId?: string) => Promise<void>,
+  ): Promise<ScheduledProjectExecution> {
+    const queued = await this.prepareQueuedExecution(projectContext, metadata);
+    const rootKey = buildProjectRootQueueKey(projectContext.project.root);
+    return {
+      queued,
+      completion: this.queue.run(projectContext.queueKey, async () => {
+        await this.projectRootQueue.run(rootKey, async () => {
+          await task(queued?.runId);
+        });
+      }),
+    };
+  }
+
+  private async prepareQueuedExecution(
+    projectContext: {
+      projectAlias: string;
+      project: ProjectConfig;
+      sessionKey: string;
+      queueKey: string;
+    },
+    metadata: {
+      chatId: string;
+      actorId?: string;
+      prompt: string;
+    },
+  ): Promise<QueuedExecutionNotice | null> {
+    const queuePending = this.queue.getPendingCount(projectContext.queueKey);
+    const rootKey = buildProjectRootQueueKey(projectContext.project.root);
+    const rootPending = this.projectRootQueue.getPendingCount(rootKey);
+    if (queuePending <= 0 && rootPending <= 0) {
+      return null;
+    }
+
+    const projectRoot = this.resolveProjectRoot(projectContext.project);
+    const reason = queuePending > 0 ? 'project' : 'project-root';
+    const frontCount = reason === 'project' ? queuePending : rootPending;
+    const blockingRun =
+      reason === 'project'
+        ? await this.runStateStore.getActiveRun(projectContext.queueKey)
+        : await this.runStateStore.getExecutionRunByProjectRoot(projectRoot);
+    const detail = this.buildQueuedStatusDetail(projectContext.projectAlias, reason, frontCount, blockingRun);
+    const runId = randomUUID();
+
+    await this.runStateStore.upsertRun(runId, {
+      queue_key: projectContext.queueKey,
+      conversation_key: projectContext.sessionKey,
+      project_alias: projectContext.projectAlias,
+      chat_id: metadata.chatId,
+      actor_id: metadata.actorId,
+      project_root: projectRoot,
+      prompt_excerpt: truncateExcerpt(metadata.prompt),
+      status: 'queued',
+      status_detail: detail,
     });
+    await this.auditLog.append({
+      type: 'codex.run.queued',
+      run_id: runId,
+      chat_id: metadata.chatId,
+      actor_id: metadata.actorId,
+      project_alias: projectContext.projectAlias,
+      conversation_key: projectContext.sessionKey,
+      project_root: projectRoot,
+      queue_reason: reason,
+      blocking_run_id: blockingRun?.run_id,
+      front_count: frontCount,
+    });
+
+    return {
+      runId,
+      detail,
+      reason,
+    };
+  }
+
+  private buildQueuedReplyText(projectAlias: string, queued: QueuedExecutionNotice): string {
+    return [`项目: ${projectAlias}`, `运行: ${queued.runId}`, '状态: queued', '', queued.detail].join('\n');
+  }
+
+  private buildQueuedStatusDetail(
+    projectAlias: string,
+    reason: QueuedExecutionNotice['reason'],
+    frontCount: number,
+    blockingRun: RunState | null,
+  ): string {
+    const lines = [
+      reason === 'project' ? `当前项目 ${projectAlias} 已有任务在处理，已进入排队。` : '当前仓库正在被其他会话操作，已进入排队。',
+      frontCount > 0 ? `前方还有 ${frontCount} 个任务。` : null,
+      blockingRun ? `阻塞运行: ${blockingRun.run_id} (${blockingRun.status})` : null,
+      reason === 'project-root' && blockingRun?.project_alias && blockingRun.project_alias !== projectAlias ? `占用项目: ${blockingRun.project_alias}` : null,
+    ];
+    return lines.filter(Boolean).join('\n');
+  }
+
+  private buildRunStatusSummary(lastResponseExcerpt?: string, activeRun?: RunState | null): string {
+    if (activeRun?.status === 'queued' && activeRun.status_detail) {
+      return [activeRun.status_detail, lastResponseExcerpt ? `\n上一轮摘要:\n${lastResponseExcerpt}` : null].filter(Boolean).join('\n');
+    }
+    return lastResponseExcerpt ?? '暂无会话摘要。';
+  }
+
+  private resolveProjectRoot(project: ProjectConfig): string {
+    return path.resolve(project.root);
   }
 
   private async enforceSessionHistoryLimit(conversationKey: string, projectAlias: string): Promise<void> {
@@ -2025,6 +2180,10 @@ export function buildQueueKey(conversationKey: string, projectAlias: string): st
 
 export function buildProjectRootQueueKey(projectRoot: string): string {
   return `root::${path.resolve(projectRoot)}`;
+}
+
+function isExecutionRunStatus(status: RunState['status']): boolean {
+  return status === 'running' || status === 'orphaned';
 }
 
 function buildMessageDedupeKey(context: IncomingMessageContext): string {

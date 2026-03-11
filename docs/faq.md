@@ -7,6 +7,7 @@
 - 每个项目可以保存多条历史 session
 - 当前激活的 session 可以通过 `/session use <thread_id>` 切换
 - 队列按 `session key + project alias` 隔离，所以同一聊天窗口下不同项目可以并行
+- 如果同一项目或同一 `project.root` 已有运行，后续消息会先进入 `queued` 状态；`/status` 也会显示排队原因
 
 ## 2. 飞书里怎么和指定 session 聊天？
 

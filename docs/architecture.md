@@ -150,6 +150,7 @@ Runner 还支持：
 4. `project root lock`
 - 按 `project.root` 全局串行
 - 即使不同群、不同私聊、不同 alias 指向同一仓库，也不会并发执行 Codex run
+- 如果命中锁，桥接器会先写入一个 `queued` 运行态，并向飞书提示当前是“项目内排队”还是“仓库正在被其他会话操作”
 
 ## 选择长连接 + Webhook 双模式的原因
 

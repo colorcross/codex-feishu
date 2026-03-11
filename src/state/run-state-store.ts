@@ -3,7 +3,7 @@ import { SerialExecutor } from '../utils/serial-executor.js';
 import { ensureDir, fileExists, readUtf8, writeUtf8Atomic } from '../utils/fs.js';
 import { isProcessAlive } from '../runtime/process.js';
 
-export type RunStatus = 'running' | 'success' | 'failure' | 'cancelled' | 'stale' | 'orphaned';
+export type RunStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled' | 'stale' | 'orphaned';
 
 export interface RunState {
   run_id: string;
@@ -13,9 +13,11 @@ export interface RunState {
   chat_id: string;
   actor_id?: string;
   session_id?: string;
+  project_root?: string;
   pid?: number;
   prompt_excerpt: string;
   status: RunStatus;
+  status_detail?: string;
   started_at: string;
   updated_at: string;
   finished_at?: string;
@@ -58,14 +60,18 @@ export class RunStateStore {
         status: patch.status,
         started_at: existing?.started_at ?? now,
         updated_at: now,
-        actor_id: patch.actor_id ?? existing?.actor_id,
-        session_id: patch.session_id ?? existing?.session_id,
-        pid: patch.pid ?? existing?.pid,
-        finished_at: patch.finished_at ?? existing?.finished_at,
-        error: patch.error ?? existing?.error,
+        actor_id: pickPatchedValue(patch, 'actor_id', existing?.actor_id),
+        session_id: pickPatchedValue(patch, 'session_id', existing?.session_id),
+        project_root: pickPatchedValue(patch, 'project_root', existing?.project_root),
+        pid: pickPatchedValue(patch, 'pid', existing?.pid),
+        status_detail: pickPatchedValue(patch, 'status_detail', existing?.status_detail),
+        finished_at: pickPatchedValue(patch, 'finished_at', existing?.finished_at),
+        error: pickPatchedValue(patch, 'error', existing?.error),
       };
-      if (next.status !== 'running') {
+      if (isTerminalRunStatus(next.status)) {
         next.finished_at = patch.finished_at ?? now;
+      } else {
+        next.finished_at = undefined;
       }
       state.runs[runId] = next;
       await this.writeState(state);
@@ -89,7 +95,16 @@ export class RunStateStore {
     await this.serial.wait();
     const state = await this.readState();
     const active = Object.values(state.runs)
-      .filter((run) => run.queue_key === queueKey && (run.status === 'running' || run.status === 'orphaned'))
+      .filter((run) => run.queue_key === queueKey && isExecutionRunStatus(run.status))
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at))[0];
+    return active ?? null;
+  }
+
+  public async getLatestVisibleRun(queueKey: string): Promise<RunState | null> {
+    await this.serial.wait();
+    const state = await this.readState();
+    const active = Object.values(state.runs)
+      .filter((run) => run.queue_key === queueKey && isVisibleRunStatus(run.status))
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at))[0];
     return active ?? null;
   }
@@ -98,8 +113,17 @@ export class RunStateStore {
     await this.serial.wait();
     const state = await this.readState();
     return Object.values(state.runs)
-      .filter((run) => run.status === 'running' || run.status === 'orphaned')
+      .filter((run) => isVisibleRunStatus(run.status))
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+  }
+
+  public async getExecutionRunByProjectRoot(projectRoot: string): Promise<RunState | null> {
+    await this.serial.wait();
+    const state = await this.readState();
+    const active = Object.values(state.runs)
+      .filter((run) => run.project_root === projectRoot && isExecutionRunStatus(run.status))
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at))[0];
+    return active ?? null;
   }
 
   public async recoverOrphanedRuns(): Promise<RunState[]> {
@@ -148,4 +172,20 @@ export class RunStateStore {
     await ensureDir(path.dirname(this.filePath));
     await writeUtf8Atomic(this.filePath, `${JSON.stringify(state, null, 2)}\n`);
   }
+}
+
+function isExecutionRunStatus(status: RunStatus): boolean {
+  return status === 'running' || status === 'orphaned';
+}
+
+function isVisibleRunStatus(status: RunStatus): boolean {
+  return status === 'queued' || isExecutionRunStatus(status);
+}
+
+function isTerminalRunStatus(status: RunStatus): boolean {
+  return status === 'success' || status === 'failure' || status === 'cancelled' || status === 'stale';
+}
+
+function pickPatchedValue<T extends keyof RunState>(patch: Partial<RunState>, key: T, fallback: RunState[T]): RunState[T] {
+  return (Object.prototype.hasOwnProperty.call(patch, key) ? patch[key] : fallback) as RunState[T];
 }

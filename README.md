@@ -244,6 +244,7 @@ wiki_space_ids = ["space_xxx"]
 - `session key` 负责记住当前项目对应的 Codex 会话
 - `queue key = session key + project alias`，保证同一聊天上下文内同一项目串行
 - 桥接层还会按 `project.root` 做全局串行，避免不同群/私聊同时操作同一仓库
+- 如果命中上述任一队列，飞书会先回一条 `queued` 状态；同 chat 内排队会提示“当前项目已有任务在处理”，跨 chat 命中仓库锁会提示“当前仓库正在被操作”
 
 说明：
 
