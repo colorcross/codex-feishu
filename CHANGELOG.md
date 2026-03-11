@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.1.5 - 2026-03-11
+
+### Highlights
+
+- 优化官网所有超大号标题的字体与排版密度，降低拥挤感，提升中英文首屏和模块标题的可读性。
+- 英文展示字体切到更克制的 serif 风格，中文大标题与模块标题同步放松行高、字号和段内节奏。
+- 重生成官网社交预览图，让分享图与新的首屏排版保持一致。
+
+### Included
+
+- 官网：
+  - `website/index.html`
+  - `website/en.html`
+  - `website/styles.css`
+  - `website/social-preview.png`
+  - `.github/assets/social-preview.png`
+
+### Verification
+
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+- 本地静态预览检查通过（中文页 / 英文页）
+
 ## v0.1.4 - 2026-03-11
 
 ### Highlights
