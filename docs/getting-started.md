@@ -227,13 +227,15 @@ allowed_group_ids = ["oc_group_1", "oc_group_2"]
 - `codex-feishu stop --force`：停止服务，必要时强制终止
 - `codex-feishu restart`：重启后台服务
 - `codex-feishu audit tail --limit 20`：查看最近审计事件
-- `codex-feishu doctor --fix`：创建缺失状态目录、清理 stale pid、轮转超大日志
+- `codex-feishu audit cleanup`：按 retention / archive 策略归档并清理审计日志
+- `codex-feishu doctor --fix`：创建缺失状态目录、清理 stale pid、轮转超大日志并执行审计清理
 - `codex-feishu upgrade --check`：检查 npm 是否有新版本
 - `codex-feishu upgrade --yes`：从 npm 全局升级到最新版本
 - `codex-feishu mcp`：启动 MCP 服务，供 OpenClaw 等外部工具接入
   - 可通过 `project.switch` / `session.adopt` 做项目切换和本地会话接管
   - 可通过 `command.interpret` / `command.execute` 安全解释并执行自然语言控制命令
-  - `--transport http --auth-token ...` 可直接暴露 HTTP/SSE MCP 入口
+  - `--transport http` 可直接暴露 HTTP/SSE MCP 入口
+  - 可使用 `mcp.auth_tokens` 或 `--auth-token --auth-token-id` 做多 token/轮换
 
 常用飞书端运维命令：
 
@@ -253,7 +255,7 @@ allowed_group_ids = ["oc_group_1", "oc_group_2"]
 如果外部客户端不方便走 `stdio`，可直接启 HTTP：
 
 ```bash
-codex-feishu mcp --transport http --host 127.0.0.1 --port 8765 --auth-token "$MCP_AUTH_TOKEN"
+codex-feishu mcp --transport http --host 127.0.0.1 --port 8765 --auth-token "$MCP_AUTH_TOKEN_PRIMARY" --auth-token-id primary
 ```
 
 对应配置：
@@ -266,14 +268,22 @@ port = 8765
 path = "/mcp"
 sse_path = "/mcp/sse"
 message_path = "/mcp/message"
-auth_token = "env:MCP_AUTH_TOKEN"
+active_auth_token_id = "primary"
+[[mcp.auth_tokens]]
+id = "primary"
+token = "env:MCP_AUTH_TOKEN_PRIMARY"
+enabled = true
+[[mcp.auth_tokens]]
+id = "rollover"
+token = "env:MCP_AUTH_TOKEN_ROLLOVER"
+enabled = true
 ```
 
 建议：
 
 - `POST /mcp`：同步 JSON-RPC
 - `GET /mcp/sse` + `POST /mcp/message?sessionId=...`：SSE 会话
-- HTTP 模式下始终配置 `auth_token`
+- HTTP 模式下始终配置 MCP token；推荐主 token + rollover token 共存一段时间后再移除旧 token
 
 ## 项目隔离目录
 
@@ -283,17 +293,21 @@ auth_token = "env:MCP_AUTH_TOKEN"
 - 临时文件：`state/projects/<alias>/tmp`
 - 缓存：`state/projects/<alias>/cache`
 - 项目审计：`state/projects/<alias>/logs/project-audit.jsonl`
+- 项目归档：`state/projects/<alias>/archive/project-audit.jsonl`
 
 也可以单独覆盖：
 
 ```toml
 [projects.repo-a]
 root = "/srv/repos/repo-a"
+run_priority = 200
 download_dir = "/srv/codex-feishu/downloads/repo-a"
 temp_dir = "/srv/codex-feishu/tmp/repo-a"
 cache_dir = "/srv/codex-feishu/cache/repo-a"
 log_dir = "/srv/codex-feishu/logs/repo-a"
 ```
+
+当多个项目共享同一个 `project.root` 锁时，`run_priority` 更高的项目会优先执行；相同优先级仍按 FIFO 排队。
 
 ## 回复模式
 

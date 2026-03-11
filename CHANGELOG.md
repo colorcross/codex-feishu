@@ -10,6 +10,9 @@
 - MCP 新增 `HTTP/SSE + Bearer token` 入口，便于 OpenClaw 等远端客户端接入。
 - 权限从“角色”扩到“能力”，新增 session/run/config/service 级 allow-list。
 - 项目默认拥有独立的下载、临时文件、缓存和项目审计目录，收口到 `storage.dir/projects/<alias>/...`。
+- MCP 鉴权扩展为多 token / 轮换模式，并支持标记当前主 token。
+- 项目锁调度新增 `run_priority`，同仓库竞争时可按项目优先级执行。
+- 审计新增 retention / archive / cleanup 策略，并接入 `doctor --fix` 与后台维护循环。
 
 ### Included
 
@@ -22,6 +25,14 @@
   - `src/projects/paths.ts`
   - `src/codex/runner.ts`
   - `tests/mcp-http-server.test.ts`
+- MCP token 轮换、项目优先级和审计清理：
+  - `src/mcp/server.ts`
+  - `src/bridge/task-queue.ts`
+  - `src/state/audit-log.ts`
+  - `src/bridge/service.ts`
+  - `src/cli.ts`
+  - `tests/task-queue.test.ts`
+  - `tests/audit-log.test.ts`
 - readiness / metrics：
   - `src/observability/readiness.ts`
   - `src/observability/metrics.ts`

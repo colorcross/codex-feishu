@@ -24,4 +24,32 @@ describe('audit log', () => {
     expect(events[0]?.type).toBe('two');
     expect(events[0]?.chat_id).toBe('chat-2');
   });
+
+  it('archives and prunes expired events', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-audit-cleanup-'));
+    tempDirs.push(dir);
+    const audit = new AuditLog(dir);
+
+    await audit.append({ type: 'fresh', at: '2026-03-10T00:00:00.000Z' });
+    await audit.append({ type: 'archive', at: '2026-03-01T00:00:00.000Z' });
+    await audit.append({ type: 'drop', at: '2026-02-01T00:00:00.000Z' });
+
+    const result = await audit.cleanup({
+      retentionDays: 20,
+      archiveAfterDays: 7,
+      archiveDir: path.join(dir, 'archive'),
+      now: new Date('2026-03-12T00:00:00.000Z'),
+    });
+
+    expect(result.kept).toBe(1);
+    expect(result.archived).toBe(1);
+    expect(result.removed).toBe(1);
+
+    const current = await audit.tail(10);
+    expect(current.map((event) => event.type)).toEqual(['fresh']);
+
+    const archived = await fs.readFile(path.join(dir, 'archive', 'audit.jsonl'), 'utf8');
+    expect(archived).toContain('"type":"archive"');
+    expect(archived).not.toContain('"type":"drop"');
+  });
 });

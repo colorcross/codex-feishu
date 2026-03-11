@@ -31,6 +31,7 @@ import { ServiceReadinessProbe } from './observability/readiness.js';
 import { buildReplayCardAction, buildReplayMessageEvent, postWebhookPayload, requestWebhookEndpoint } from './feishu/replay.js';
 import { isProcessAlive, terminateProcess } from './runtime/process.js';
 import { startMcpServer } from './mcp/server.js';
+import { getProjectArchiveDir, getProjectAuditDir } from './projects/paths.js';
 
 const logger = createLogger();
 const program = new Command();
@@ -222,7 +223,7 @@ const serveCommand = program
       },
     });
     const recoveredRuns = await service.recoverRuntimeState();
-    await service.runMemoryMaintenance();
+    await service.runMaintenanceCycle();
     service.startMaintenanceLoop();
     const metricsServer =
       config.service.metrics_port !== undefined
@@ -491,7 +492,8 @@ program
   .option('--sse-path <path>', 'HTTP SSE path')
   .option('--message-path <path>', 'HTTP SSE message POST path')
   .option('--auth-token <token>', 'HTTP Bearer token')
-  .action(async (options: { config?: string; transport?: 'stdio' | 'http'; host?: string; port?: string; path?: string; ssePath?: string; messagePath?: string; authToken?: string }) => {
+  .option('--auth-token-id <id>', 'logical token id used with --auth-token')
+  .action(async (options: { config?: string; transport?: 'stdio' | 'http'; host?: string; port?: string; path?: string; ssePath?: string; messagePath?: string; authToken?: string; authTokenId?: string }) => {
     await startMcpServer({
       cwd: process.cwd(),
       configPath: options.config,
@@ -502,6 +504,7 @@ program
       ssePath: options.ssePath,
       messagePath: options.messagePath,
       authToken: options.authToken,
+      authTokenId: options.authTokenId,
     });
   });
 
@@ -749,11 +752,38 @@ auditCommand
   .description('Print the latest audit events as JSON')
   .option('--config <path>', 'config path override')
   .option('--limit <number>', 'number of events', '20')
-  .action(async (options: { config?: string; limit: string }) => {
+  .option('--admin', 'tail admin audit log instead of the main audit log', false)
+  .option('--project <alias>', 'tail one project audit log')
+  .action(async (options: { config?: string; limit: string; admin: boolean; project?: string }) => {
     const { config } = await loadBridgeConfig({ cwd: process.cwd(), configPath: options.config });
-    const auditLog = new AuditLog(config.storage.dir);
+    const auditLog = new AuditLog(resolveAuditLogDir(config, options.project), resolveAuditLogFileName(options));
     const events = await auditLog.tail(Number(options.limit));
     console.log(JSON.stringify(events, null, 2));
+  });
+
+auditCommand
+  .command('cleanup')
+  .description('Archive and prune audit logs using configured or explicit retention settings')
+  .option('--config <path>', 'config path override')
+  .option('--retention-days <number>', 'drop events older than this many days')
+  .option('--archive-after-days <number>', 'archive events older than this many days before retention applies')
+  .option('--admin', 'only clean the admin audit log', false)
+  .option('--project <alias>', 'only clean one project audit log')
+  .action(async (options: { config?: string; retentionDays?: string; archiveAfterDays?: string; admin: boolean; project?: string }) => {
+    const { config } = await loadBridgeConfig({ cwd: process.cwd(), configPath: options.config });
+    const targets = listAuditCleanupTargets(config, options.project, options.admin);
+    const retentionDays = Number(options.retentionDays ?? config.service.audit_retention_days);
+    const archiveAfterDays = Number(options.archiveAfterDays ?? config.service.audit_archive_after_days);
+    const results = await Promise.all(
+      targets.map((target) =>
+        new AuditLog(target.stateDir, target.fileName).cleanup({
+          retentionDays,
+          archiveAfterDays,
+          archiveDir: target.archiveDir,
+        }),
+      ),
+    );
+    console.log(JSON.stringify(results, null, 2));
   });
 
 const serviceCommand = program.command('service').description('Install or inspect an OS user service definition');
@@ -851,6 +881,17 @@ program
         (printable.feishu as Record<string, unknown>).verification_token = '<redacted>';
       }
     }
+    if (typeof printable.mcp === 'object' && printable.mcp) {
+      if ((printable.mcp as Record<string, unknown>).auth_token) {
+        (printable.mcp as Record<string, unknown>).auth_token = '<redacted>';
+      }
+      if (Array.isArray((printable.mcp as Record<string, unknown>).auth_tokens)) {
+        (printable.mcp as Record<string, unknown>).auth_tokens = ((printable.mcp as Record<string, unknown>).auth_tokens as Array<Record<string, unknown>>).map((token) => ({
+          ...token,
+          token: '<redacted>',
+        }));
+      }
+    }
     console.log(JSON.stringify({ sources, config: printable }, null, 2));
   });
 
@@ -905,6 +946,67 @@ function getManagedLogPaths(config: RuntimeCliConfig): string[] {
     path.join(config.storage.dir, 'audit.jsonl'),
     path.join(config.storage.dir, 'admin-audit.jsonl'),
   ];
+}
+
+function resolveAuditLogDir(config: BridgeConfig, projectAlias?: string): string {
+  if (!projectAlias) {
+    return config.storage.dir;
+  }
+  const project = config.projects[projectAlias];
+  if (!project) {
+    throw new Error(`Unknown project alias: ${projectAlias}`);
+  }
+  return getProjectAuditDir(config.storage.dir, projectAlias, project);
+}
+
+function resolveAuditLogFileName(options: { admin: boolean; project?: string }): string {
+  if (options.project) {
+    return 'project-audit.jsonl';
+  }
+  return options.admin ? 'admin-audit.jsonl' : 'audit.jsonl';
+}
+
+function listAuditCleanupTargets(
+  config: BridgeConfig,
+  projectAlias?: string,
+  adminOnly: boolean = false,
+): Array<{ stateDir: string; fileName: string; archiveDir: string }> {
+  if (projectAlias) {
+    const project = config.projects[projectAlias];
+    if (!project) {
+      throw new Error(`Unknown project alias: ${projectAlias}`);
+    }
+    return [
+      {
+        stateDir: getProjectAuditDir(config.storage.dir, projectAlias, project),
+        fileName: 'project-audit.jsonl',
+        archiveDir: getProjectArchiveDir(config.storage.dir, projectAlias),
+      },
+    ];
+  }
+
+  const targets = [
+    {
+      stateDir: config.storage.dir,
+      fileName: adminOnly ? 'admin-audit.jsonl' : 'audit.jsonl',
+      archiveDir: path.join(config.storage.dir, 'archive'),
+    },
+  ];
+  if (!adminOnly) {
+    targets.push({
+      stateDir: config.storage.dir,
+      fileName: 'admin-audit.jsonl',
+      archiveDir: path.join(config.storage.dir, 'archive'),
+    });
+    for (const [alias, project] of Object.entries(config.projects)) {
+      targets.push({
+        stateDir: getProjectAuditDir(config.storage.dir, alias, project),
+        fileName: 'project-audit.jsonl',
+        archiveDir: getProjectArchiveDir(config.storage.dir, alias),
+      });
+    }
+  }
+  return targets;
 }
 
 async function inspectRuntimeStatus(config: RuntimeCliConfig): Promise<{
@@ -1164,6 +1266,20 @@ async function applySafeDoctorFixes(config: BridgeConfig): Promise<string[]> {
 
   const rotated = await rotateManagedLogs(config);
   fixes.push(...rotated.map((file) => `rotated log: ${file}`));
+  const cleanedAudits = await Promise.all(
+    listAuditCleanupTargets(config).map((target) =>
+      new AuditLog(target.stateDir, target.fileName).cleanup({
+        retentionDays: config.service.audit_retention_days,
+        archiveAfterDays: config.service.audit_archive_after_days,
+        archiveDir: target.archiveDir,
+      }),
+    ),
+  );
+  for (const result of cleanedAudits) {
+    if (result.archived > 0 || result.removed > 0) {
+      fixes.push(`cleaned audit: ${result.filePath} (archived=${result.archived}, removed=${result.removed})`);
+    }
+  }
   return fixes;
 }
 

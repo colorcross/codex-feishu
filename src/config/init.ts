@@ -38,6 +38,9 @@ memory_prompt_max_chars = 1600
 thread_summary_max_chars = 1200
 memory_group_enabled = false
 memory_cleanup_interval_seconds = 1800
+audit_archive_after_days = 7
+audit_retention_days = 30
+audit_cleanup_interval_seconds = 3600
 memory_max_pinned_per_scope = 5
 memory_pin_overflow_strategy = "age-out"
 memory_pin_age_basis = "updated_at"
@@ -76,6 +79,15 @@ path = "/mcp"
 sse_path = "/mcp/sse"
 message_path = "/mcp/message"
 # auth_token = "env:MCP_AUTH_TOKEN"
+# active_auth_token_id = "primary"
+# [[mcp.auth_tokens]]
+# id = "primary"
+# token = "env:MCP_AUTH_TOKEN_PRIMARY"
+# enabled = true
+# [[mcp.auth_tokens]]
+# id = "rollover"
+# token = "env:MCP_AUTH_TOKEN_ROLLOVER"
+# enabled = true
 
 [feishu]
 app_id = "env:FEISHU_APP_ID"
@@ -111,5 +123,6 @@ chat_rate_limit_max_runs = 20
 # temp_dir = "./.codex-feishu/tmp"
 # cache_dir = "./.codex-feishu/cache"
 # log_dir = "./.codex-feishu/logs"
+# run_priority = 100
 `;
 }

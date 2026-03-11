@@ -249,7 +249,7 @@
             <div class="flow-card">
               <div class="flow-num">05</div>
               <h3 class="flow-title">回复后仍保留控制面</h3>
-              <p class="flow-desc">audit、metrics、run state、session history 和卡片操作都会保留下来，便于排障、追踪和持续运维。</p>
+              <p class="flow-desc">audit、metrics、run state、session history 和卡片操作都会保留下来，并支持归档清理、项目级隔离和持续排障。</p>
               <div class="flow-tag">Observability</div>
             </div>
           </div>
@@ -370,7 +370,7 @@
               </div>
               <span class="cap-label">MCP Surface</span>
               <h3 class="cap-title">既支持 stdio，也支持 HTTP/SSE MCP</h3>
-              <p class="cap-desc">运行 <code>codex-feishu mcp</code>，即可把项目列表、项目切换、会话接管和自然语言控制命令暴露给 OpenClaw 等客户端；远端接入可加 Bearer token。</p>
+              <p class="cap-desc">运行 <code>codex-feishu mcp</code>，即可把项目列表、项目切换、会话接管和自然语言控制命令暴露给 OpenClaw 等客户端；远端接入支持多 token 轮换和 Bearer 鉴权。</p>
             </div>
             <div class="cap-card">
               <div class="cap-icon cap-icon-amber" aria-hidden="true">

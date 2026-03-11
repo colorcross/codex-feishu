@@ -25,6 +25,14 @@ export function getProjectAuditDir(storageDir: string, projectAlias: string, pro
   return getProjectLogDir(storageDir, projectAlias, project);
 }
 
+export function getProjectAuditFile(storageDir: string, projectAlias: string, project: ProjectConfig): string {
+  return path.join(getProjectAuditDir(storageDir, projectAlias, project), 'project-audit.jsonl');
+}
+
+export function getProjectArchiveDir(storageDir: string, projectAlias: string): string {
+  return path.join(getProjectStateDir(storageDir, projectAlias), 'archive');
+}
+
 function sanitizeProjectAlias(value: string): string {
   const normalized = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-');
   return normalized.length > 0 ? normalized : 'default';

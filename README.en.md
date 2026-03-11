@@ -28,7 +28,7 @@ It routes Feishu messages directly into resumable Codex CLI sessions. Project bi
 | **Runtime Guard** | Dual-layer serialization with `queue key` + `project.root`. Threads in the same project won't conflict, and concurrent operations on the same repository across different chats are automatically queued with visible status. |
 | **Wiki & KB Access** | Full read/write access to Feishu Wiki, supporting `/wiki` search, read, create, rename, etc.; supports `/kb search` for local project documents. |
 | **Media Aware** | Images, files, audio, and rich text messages are parsed into structured metadata and injected into Codex prompts. |
-| **MCP Surface** | Not just for Feishu. Run `codex-feishu mcp` to expose core capabilities through `stdio` or `HTTP/SSE`, with optional Bearer auth for remote clients. |
+| **MCP Surface** | Not just for Feishu. Run `codex-feishu mcp` to expose core capabilities through `stdio` or `HTTP/SSE`, with multi-token Bearer rotation for remote clients. |
 | **Access Roles** | Supports `viewer / operator / admin` plus finer capability allow-lists for sessions, runs, config changes, and service operations. |
 | **Memory System** | Supports project memory and group shared memory, SQLite + FTS5 retrieval, configurable TTL, pin strategies, and background cleanup. |
 | **Project Isolation** | Downloads, temp files, cache, and project audit logs default to `state/projects/<alias>/...`, with per-project overrides available. |
@@ -123,6 +123,18 @@ default_sandbox = "workspace-write"
 [storage]
 dir = "~/.codex-feishu/state"
 
+[mcp]
+transport = "http"
+active_auth_token_id = "primary"
+[[mcp.auth_tokens]]
+id = "primary"
+token = "env:MCP_AUTH_TOKEN_PRIMARY"
+enabled = true
+[[mcp.auth_tokens]]
+id = "rollover"
+token = "env:MCP_AUTH_TOKEN_ROLLOVER"
+enabled = true
+
 [security]
 allowed_project_roots = ["/srv/repos"]
 admin_chat_ids = ["oc_admin_chat_1"]
@@ -135,6 +147,7 @@ transport = "long-connection"
 [projects.default]
 root = "/srv/repos/repo-a"
 session_scope = "chat"
+run_priority = 200
 ```
 
 ## 📚 Documentation Navigation

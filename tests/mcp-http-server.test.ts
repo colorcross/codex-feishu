@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 describe('mcp http server', () => {
-  it('serves HTTP JSON-RPC and SSE endpoints behind Bearer auth', async () => {
+  it('serves HTTP JSON-RPC and SSE endpoints behind rotating Bearer auth tokens', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-mcp-http-'));
     tempDirs.push(cwd);
     const configPath = path.join(cwd, 'bridge.toml');
@@ -41,6 +41,18 @@ describe('mcp http server', () => {
         '[storage]',
         `dir = "${path.join(cwd, 'state')}"`,
         '',
+        '[mcp]',
+        'transport = "http"',
+        'active_auth_token_id = "primary"',
+        '[[mcp.auth_tokens]]',
+        'id = "primary"',
+        'token = "primary-token"',
+        'enabled = true',
+        '[[mcp.auth_tokens]]',
+        'id = "rollover"',
+        'token = "rollover-token"',
+        'enabled = true',
+        '',
         '[feishu]',
         'app_id = "app-id"',
         'app_secret = "app-secret"',
@@ -53,15 +65,14 @@ describe('mcp http server', () => {
     );
 
     const port = await getFreePort();
-    const authToken = 'test-mcp-token';
-    const child = spawn(tsxBin, [cliEntry, 'mcp', '--config', configPath, '--transport', 'http', '--host', '127.0.0.1', '--port', String(port), '--auth-token', authToken], {
+    const child = spawn(tsxBin, [cliEntry, 'mcp', '--config', configPath, '--transport', 'http', '--host', '127.0.0.1', '--port', String(port)], {
       cwd,
       env: { ...process.env, HOME: cwd },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     children.push(child);
 
-    await waitForHttpReady(`http://127.0.0.1:${port}/mcp`, authToken);
+    await waitForHttpReady(`http://127.0.0.1:${port}/mcp`, 'primary-token');
 
     const unauthorized = await request({
       url: `http://127.0.0.1:${port}/mcp`,
@@ -72,7 +83,7 @@ describe('mcp http server', () => {
     const initialize = await request({
       url: `http://127.0.0.1:${port}/mcp`,
       method: 'POST',
-      token: authToken,
+      token: 'rollover-token',
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -89,7 +100,18 @@ describe('mcp http server', () => {
       },
     });
 
-    const sse = await openSse(`http://127.0.0.1:${port}/mcp/sse`, authToken);
+    const descriptor = await request({
+      url: `http://127.0.0.1:${port}/mcp`,
+      method: 'GET',
+      token: 'primary-token',
+    });
+    expect(JSON.parse(descriptor.body)).toMatchObject({
+      auth: 'bearer',
+      tokenIds: ['primary', 'rollover'],
+      activeTokenId: 'primary',
+    });
+
+    const sse = await openSse(`http://127.0.0.1:${port}/mcp/sse`, 'primary-token');
     const endpoint = await sse.nextEvent();
     expect(endpoint.event).toBe('endpoint');
     const endpointPayload = JSON.parse(endpoint.data) as { sessionId: string; messagePath: string };
@@ -98,7 +120,7 @@ describe('mcp http server', () => {
     const accepted = await request({
       url: `http://127.0.0.1:${port}${endpointPayload.messagePath}`,
       method: 'POST',
-      token: authToken,
+      token: 'rollover-token',
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 2,

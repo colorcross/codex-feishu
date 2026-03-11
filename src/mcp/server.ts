@@ -56,12 +56,19 @@ interface McpServerOptions {
   ssePath?: string;
   messagePath?: string;
   authToken?: string;
+  authTokenId?: string;
 }
 
 interface McpHttpSession {
   id: string;
   response: http.ServerResponse<http.IncomingMessage>;
   keepAlive: NodeJS.Timeout;
+}
+
+interface ResolvedMcpAuthToken {
+  id: string;
+  token: string;
+  active: boolean;
 }
 
 type McpConversationInput = ConversationRef;
@@ -444,13 +451,13 @@ async function startHttpMcpServer(options: McpServerOptions, config: BridgeConfi
   const rpcPath = options.path ?? config.mcp.path;
   const ssePath = options.ssePath ?? config.mcp.sse_path;
   const messagePath = options.messagePath ?? config.mcp.message_path;
-  const authToken = options.authToken ?? config.mcp.auth_token;
+  const auth = resolveHttpAuthTokens(config, options);
   const sessions = new Map<string, McpHttpSession>();
 
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? `${host}:${port}`}`);
-      if (!authorizeHttpRequest(request, authToken)) {
+      if (!authorizeHttpRequest(request, auth)) {
         response.statusCode = 401;
         response.setHeader('content-type', 'application/json; charset=utf-8');
         response.end(JSON.stringify({ error: 'Unauthorized MCP request.' }));
@@ -518,7 +525,9 @@ async function startHttpMcpServer(options: McpServerOptions, config: BridgeConfi
           rpcPath,
           ssePath,
           messagePath,
-          auth: authToken ? 'bearer' : 'none',
+          auth: auth.length > 0 ? 'bearer' : 'none',
+          tokenIds: auth.map((token) => token.id),
+          activeTokenId: auth.find((token) => token.active)?.id ?? null,
         }));
         return;
       }
@@ -1079,12 +1088,51 @@ function buildToolResult(text: string, structuredContent?: unknown): ToolCallRes
   };
 }
 
-function authorizeHttpRequest(request: http.IncomingMessage, authToken?: string): boolean {
-  if (!authToken) {
+function authorizeHttpRequest(request: http.IncomingMessage, tokens: ResolvedMcpAuthToken[]): boolean {
+  if (tokens.length === 0) {
     return true;
   }
   const authorization = request.headers.authorization;
-  return typeof authorization === 'string' && authorization === `Bearer ${authToken}`;
+  return typeof authorization === 'string' && tokens.some((token) => authorization === `Bearer ${token.token}`);
+}
+
+function resolveHttpAuthTokens(config: BridgeConfig, options: McpServerOptions): ResolvedMcpAuthToken[] {
+  const now = Date.now();
+  const resolved: ResolvedMcpAuthToken[] = [];
+  const configured = options.authToken
+    ? [{ id: options.authTokenId ?? 'cli', token: options.authToken, enabled: true }]
+    : config.mcp.auth_tokens;
+  const activeId = options.authToken ? options.authTokenId ?? 'cli' : config.mcp.active_auth_token_id;
+
+  for (const token of configured) {
+    if (!token.token || token.enabled === false) {
+      continue;
+    }
+    if (token.expires_at) {
+      const expiresAt = Date.parse(token.expires_at);
+      if (!Number.isNaN(expiresAt) && expiresAt <= now) {
+        continue;
+      }
+    }
+    resolved.push({
+      id: token.id,
+      token: token.token,
+      active: token.id === activeId,
+    });
+  }
+
+  if (!options.authToken && config.mcp.auth_token) {
+    resolved.push({
+      id: 'legacy',
+      token: config.mcp.auth_token,
+      active: !activeId,
+    });
+  }
+
+  if (resolved.length > 0 && !resolved.some((token) => token.active)) {
+    resolved[0]!.active = true;
+  }
+  return resolved;
 }
 
 async function readRequestBody(request: http.IncomingMessage): Promise<string> {

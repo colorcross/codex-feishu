@@ -130,6 +130,20 @@ export async function runDoctor(config: BridgeConfig): Promise<DoctorFinding[]> 
     });
   }
 
+  if (config.service.audit_cleanup_interval_seconds < 300) {
+    findings.push({
+      level: 'warn',
+      message: 'service.audit_cleanup_interval_seconds is very low; audit retention cleanup may generate unnecessary churn.',
+    });
+  }
+
+  if (config.service.audit_archive_after_days >= config.service.audit_retention_days) {
+    findings.push({
+      level: 'warn',
+      message: 'service.audit_archive_after_days should be lower than service.audit_retention_days, otherwise archived audit events may be removed immediately.',
+    });
+  }
+
   try {
     await ensureDir(config.storage.dir);
     findings.push({ level: 'info', message: `Storage directory ready: ${config.storage.dir}` });
@@ -139,10 +153,22 @@ export async function runDoctor(config: BridgeConfig): Promise<DoctorFinding[]> 
 
   const allowedRoots = config.security.allowed_project_roots.map((root) => path.resolve(root));
 
-  if (config.mcp.transport === 'http' && !config.mcp.auth_token) {
+  const enabledMcpTokens = [
+    ...(config.mcp.auth_token ? ['legacy'] : []),
+    ...config.mcp.auth_tokens.filter((token) => token.enabled !== false).map((token) => token.id),
+  ];
+
+  if (config.mcp.transport === 'http' && enabledMcpTokens.length === 0) {
     findings.push({
       level: 'warn',
-      message: 'mcp.transport=http is enabled without mcp.auth_token; MCP HTTP/SSE endpoints will be exposed without authentication.',
+      message: 'mcp.transport=http is enabled without any MCP auth token; MCP HTTP/SSE endpoints will be exposed without authentication.',
+    });
+  }
+
+  if (config.mcp.active_auth_token_id && !config.mcp.auth_tokens.some((token) => token.id === config.mcp.active_auth_token_id && token.enabled !== false)) {
+    findings.push({
+      level: 'warn',
+      message: `mcp.active_auth_token_id does not point to an enabled token: ${config.mcp.active_auth_token_id}`,
     });
   }
 

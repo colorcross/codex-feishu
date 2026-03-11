@@ -39,7 +39,7 @@ import { ensureDir, writeUtf8Atomic } from '../utils/fs.js';
 import { PendingCommandStore, type PendingCommandRecord } from '../state/pending-command-store.js';
 import { canAccessGlobalCapability, canAccessProject, canAccessProjectCapability, describeMinimumRole, filterAccessibleProjects, resolveProjectAccessRole, type AccessRole } from '../security/access.js';
 import { adoptProjectSession as adoptSharedProjectSession, listBridgeSessions as listSharedBridgeSessions, switchProjectBinding as switchSharedProjectBinding } from '../control-plane/project-session.js';
-import { getProjectAuditDir, getProjectCacheDir, getProjectDownloadsDir, getProjectTempDir } from '../projects/paths.js';
+import { getProjectArchiveDir, getProjectAuditDir, getProjectAuditFile, getProjectCacheDir, getProjectDownloadsDir, getProjectTempDir } from '../projects/paths.js';
 
 interface ActiveRunHandle {
   runId: string;
@@ -112,15 +112,20 @@ export class CodexFeishuService {
   }
 
   public startMaintenanceLoop(): void {
-    if (!this.config.service.memory_enabled || this.maintenanceTimer) {
+    if (this.maintenanceTimer) {
       return;
     }
-    const intervalMs = this.config.service.memory_cleanup_interval_seconds * 1000;
+    const intervals: number[] = [];
+    if (this.config.service.memory_enabled) {
+      intervals.push(this.config.service.memory_cleanup_interval_seconds * 1000);
+    }
+    intervals.push(this.config.service.audit_cleanup_interval_seconds * 1000);
+    const intervalMs = Math.min(...intervals.filter((value) => Number.isFinite(value) && value > 0));
     if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
       return;
     }
     this.maintenanceTimer = setInterval(() => {
-      void this.runMemoryMaintenance();
+      void this.runMaintenanceCycle();
     }, intervalMs);
     this.maintenanceTimer.unref?.();
   }
@@ -146,6 +151,44 @@ export class CodexFeishuService {
       this.logger.info({ cleaned }, 'Expired memories cleaned by background maintenance');
     }
     return cleaned;
+  }
+
+  public async runAuditMaintenance(): Promise<{ scanned: number; archived: number; removed: number }> {
+    const auditTargets = this.listManagedAuditTargets();
+    let scanned = 0;
+    let archived = 0;
+    let removed = 0;
+
+    for (const target of auditTargets) {
+      const auditLog = new AuditLog(target.stateDir, target.fileName);
+      const result = await auditLog.cleanup({
+        retentionDays: this.config.service.audit_retention_days,
+        archiveAfterDays: this.config.service.audit_archive_after_days,
+        archiveDir: target.archiveDir,
+      });
+      scanned += 1;
+      archived += result.archived;
+      removed += result.removed;
+    }
+
+    if (archived > 0 || removed > 0) {
+      await this.auditLog.append({
+        type: 'audit.cleanup.completed',
+        scanned,
+        archived,
+        removed,
+      });
+      this.logger.info({ scanned, archived, removed }, 'Audit retention cleanup completed');
+    }
+
+    return { scanned, archived, removed };
+  }
+
+  public async runMaintenanceCycle(): Promise<void> {
+    if (this.config.service.memory_enabled) {
+      await this.runMemoryMaintenance();
+    }
+    await this.runAuditMaintenance();
   }
 
   public async handleIncomingMessage(context: IncomingMessageContext): Promise<void> {
@@ -1147,6 +1190,7 @@ export class CodexFeishuService {
           session_operator_chat_ids: [],
           run_operator_chat_ids: [],
           config_admin_chat_ids: [],
+          run_priority: 100,
           chat_rate_limit_window_seconds: 60,
           chat_rate_limit_max_runs: 20,
         };
@@ -1201,7 +1245,7 @@ export class CodexFeishuService {
       if (!patch) {
         await this.sendTextReply(
           context.chat_id,
-          '支持字段: root, profile, sandbox, session_scope, mention_required, description, viewer_chat_ids, operator_chat_ids, admin_chat_ids, session_operator_chat_ids, run_operator_chat_ids, config_admin_chat_ids, download_dir, temp_dir, cache_dir, log_dir, chat_rate_limit_window_seconds, chat_rate_limit_max_runs',
+          '支持字段: root, profile, sandbox, session_scope, mention_required, description, viewer_chat_ids, operator_chat_ids, admin_chat_ids, session_operator_chat_ids, run_operator_chat_ids, config_admin_chat_ids, download_dir, temp_dir, cache_dir, log_dir, run_priority, chat_rate_limit_window_seconds, chat_rate_limit_max_runs',
           context.message_id,
           context.text,
         );
@@ -2437,7 +2481,7 @@ export class CodexFeishuService {
         await this.projectRootQueue.run(rootKey, async () => {
           await startGate.promise;
           await task(runId);
-        });
+        }, { priority: projectContext.project.run_priority });
       }),
     };
   }
@@ -2857,6 +2901,10 @@ export class CodexFeishuService {
         return { cache_dir: value };
       case 'log_dir':
         return { log_dir: value };
+      case 'run_priority': {
+        const parsed = Number(value);
+        return Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000 ? { run_priority: parsed } : null;
+      }
       case 'chat_rate_limit_window_seconds': {
         const parsed = Number(value);
         return Number.isInteger(parsed) && parsed > 0 ? { chat_rate_limit_window_seconds: parsed } : null;
@@ -2885,6 +2933,31 @@ export class CodexFeishuService {
   private async appendProjectAuditEvent(projectAlias: string, project: ProjectConfig, event: { type: string; [key: string]: unknown }): Promise<void> {
     const auditLog = new AuditLog(getProjectAuditDir(this.config.storage.dir, projectAlias, project), 'project-audit.jsonl');
     await auditLog.append(event);
+  }
+
+  private listManagedAuditTargets(): Array<{ stateDir: string; fileName: string; archiveDir?: string }> {
+    const targets: Array<{ stateDir: string; fileName: string; archiveDir?: string }> = [
+      {
+        stateDir: this.config.storage.dir,
+        fileName: 'audit.jsonl',
+        archiveDir: path.join(this.config.storage.dir, 'archive'),
+      },
+      {
+        stateDir: this.config.storage.dir,
+        fileName: 'admin-audit.jsonl',
+        archiveDir: path.join(this.config.storage.dir, 'archive'),
+      },
+    ];
+
+    for (const [alias, project] of Object.entries(this.config.projects)) {
+      targets.push({
+        stateDir: getProjectAuditDir(this.config.storage.dir, alias, project),
+        fileName: path.basename(getProjectAuditFile(this.config.storage.dir, alias, project)),
+        archiveDir: getProjectArchiveDir(this.config.storage.dir, alias),
+      });
+    }
+
+    return targets;
   }
 
   private checkAndConsumeChatRateLimit(projectAlias: string, project: ProjectConfig, chatId: string): string | null {

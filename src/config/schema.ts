@@ -28,6 +28,7 @@ export const projectSchema = z.object({
   temp_dir: z.string().optional(),
   cache_dir: z.string().optional(),
   log_dir: z.string().optional(),
+  run_priority: z.number().int().min(1).max(1000).default(100),
   chat_rate_limit_window_seconds: z.number().int().positive().default(60),
   chat_rate_limit_max_runs: z.number().int().positive().default(20),
 });
@@ -66,6 +67,9 @@ export const bridgeConfigSchema = z.object({
       memory_group_enabled: z.boolean().default(false),
       memory_default_ttl_days: z.number().int().positive().optional(),
       memory_cleanup_interval_seconds: z.number().int().positive().default(1800),
+      audit_archive_after_days: z.number().int().positive().default(7),
+      audit_retention_days: z.number().int().positive().default(30),
+      audit_cleanup_interval_seconds: z.number().int().positive().default(3600),
       memory_max_pinned_per_scope: z.number().int().positive().default(5),
       memory_pin_overflow_strategy: memoryPinOverflowStrategySchema.default('age-out'),
       memory_pin_age_basis: memoryPinAgeBasisSchema.default('updated_at'),
@@ -97,6 +101,9 @@ export const bridgeConfigSchema = z.object({
       thread_summary_max_chars: 1200,
       memory_group_enabled: false,
       memory_cleanup_interval_seconds: 1800,
+      audit_archive_after_days: 7,
+      audit_retention_days: 30,
+      audit_cleanup_interval_seconds: 3600,
       memory_max_pinned_per_scope: 5,
       memory_pin_overflow_strategy: 'age-out',
       memory_pin_age_basis: 'updated_at',
@@ -152,7 +159,19 @@ export const bridgeConfigSchema = z.object({
       path: z.string().default('/mcp'),
       sse_path: z.string().default('/mcp/sse'),
       message_path: z.string().default('/mcp/message'),
+      active_auth_token_id: z.string().optional(),
       auth_token: z.string().optional(),
+      auth_tokens: z
+        .array(
+          z.object({
+            id: z.string(),
+            token: z.string(),
+            enabled: z.boolean().default(true),
+            description: z.string().optional(),
+            expires_at: z.string().optional(),
+          }),
+        )
+        .default([]),
     })
     .optional()
     .default({
@@ -162,6 +181,7 @@ export const bridgeConfigSchema = z.object({
       path: '/mcp',
       sse_path: '/mcp/sse',
       message_path: '/mcp/message',
+      auth_tokens: [],
     }),
   feishu: z.object({
     app_id: z.string(),

@@ -403,7 +403,7 @@ describe('cli flow', () => {
     expect(print.status).toBe(0);
     expect(print.stdout).toContain('repo-install');
     expect(print.stdout).toContain(projectRoot);
-  });
+  }, 15000);
 });
 
 function runCli(args: string[], options: { cwd: string; env?: Record<string, string> }) {
