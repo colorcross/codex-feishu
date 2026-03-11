@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-- Node.js `>= 20.10`
+- Node.js `>= 24`
 - `codex` 已安装并可执行
 - 已创建飞书自建应用，并开启机器人能力
 - 飞书应用已配置事件订阅
@@ -27,7 +27,7 @@ codex-feishu init --mode global
 如果你想固定到某个 release 产物，也可以直接安装 GitHub Release 的 tgz：
 
 ```bash
-npm install -g https://github.com/colorcross/codex-feishu/releases/download/v0.1.7/codex-feishu-0.1.7.tgz
+npm install -g https://github.com/colorcross/codex-feishu/releases/download/v0.1.8/codex-feishu-0.1.8.tgz
 codex-feishu init --mode global
 ```
 

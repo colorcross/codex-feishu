@@ -6,7 +6,7 @@
 [![npm](https://img.shields.io/npm/v/codex-feishu)](https://www.npmjs.com/package/codex-feishu)
 [![License](https://img.shields.io/github/license/colorcross/codex-feishu)](https://github.com/colorcross/codex-feishu/blob/main/LICENSE)
 [![Pages](https://github.com/colorcross/codex-feishu/actions/workflows/pages.yml/badge.svg)](https://github.com/colorcross/codex-feishu/actions/workflows/pages.yml)
-[![Node >=20.10](https://img.shields.io/badge/node-%3E%3D20.10-0f172a)](https://nodejs.org/)
+[![Node >=24](https://img.shields.io/badge/node-%3E%3D24-0f172a)](https://nodejs.org/)
 [![Feishu](https://img.shields.io/badge/feishu-supported-0ea5e9)](https://open.feishu.cn/)
 [![Codex CLI](https://img.shields.io/badge/codex_cli-session--aware-c2410c)](https://developers.openai.com/codex/)
 
@@ -72,7 +72,7 @@ Codex Feishu 让飞书消息直接进入可续接的 Codex 会话。项目可路
 
 ### 1. 环境要求
 
-- Node.js `>= 20.10`
+- Node.js `>= 24`
 - 已安装并可执行的 `codex`
 - 一个已启用机器人能力的飞书自建应用
 
@@ -88,7 +88,7 @@ codex-feishu init --mode global
 如果你希望固定安装某个 release 产物，也可以直接装 GitHub Release 的 tgz：
 
 ```bash
-npm install -g https://github.com/colorcross/codex-feishu/releases/download/v0.1.7/codex-feishu-0.1.7.tgz
+npm install -g https://github.com/colorcross/codex-feishu/releases/download/v0.1.8/codex-feishu-0.1.8.tgz
 codex-feishu init --mode global
 ```
 
