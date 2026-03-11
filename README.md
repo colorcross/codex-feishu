@@ -239,9 +239,15 @@ wiki_space_ids = ["space_xxx"]
 
 ### 项目路由
 
-- `selection key` 负责记住当前聊天窗口选中了哪个项目
+- `selection key` 负责按 `chat_id` 记住当前聊天窗口选中了哪个项目
 - `session key` 负责记住当前项目对应的 Codex 会话
 - `queue key = session key + project alias`，保证同一项目串行，不同项目可并行
+
+说明：
+
+- 同一个飞书群会共享一个项目绑定
+- 在群里执行 `/project <alias>` 会直接更新这个群后续消息的默认项目
+- 不同 `chat_id` 会各自记住自己的项目绑定
 
 ### 群聊触发规则
 

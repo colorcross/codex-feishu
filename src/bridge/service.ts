@@ -1837,8 +1837,10 @@ export class CodexFeishuService {
     return key;
   }
 
-  private getSelectionScope(context: Pick<IncomingMessageContext, 'actor_id'>): SessionScope {
-    return context.actor_id ? 'chat-user' : 'chat';
+  private getSelectionScope(_context: Pick<IncomingMessageContext, 'actor_id'>): SessionScope {
+    // Project routing is shared by chat_id so a group can keep one project binding
+    // and `/project <alias>` updates the binding for the whole chat.
+    return 'chat';
   }
 
   private shouldRequireMention(project: ProjectConfig): boolean {

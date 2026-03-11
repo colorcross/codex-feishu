@@ -222,6 +222,75 @@ describe('bridge service', () => {
     expect(runCodexTurnMock).toHaveBeenCalledTimes(2);
   });
 
+  it('shares project binding by chat_id in groups and lets /project update the binding', async () => {
+    const setup = await createService({
+      projects: {
+        'repo-a': { root: '/tmp/repo-a', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+        'repo-b': { root: '/tmp/repo-b', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+      },
+      service: { default_project: 'repo-a' },
+      security: { require_group_mentions: false },
+    });
+    runCodexTurnMock.mockResolvedValue({
+      sessionId: 'thread-group-shared',
+      finalMessage: 'done',
+      stderr: '',
+      exitCode: 0,
+      capabilities: { version: 'v', exec: {}, resume: {} },
+    });
+
+    await setup.service.handleIncomingMessage(
+      buildMessage('/project repo-b', { chat_id: 'group-1', chat_type: 'group', actor_id: 'user-a', message_id: 'm-group-project-1' }),
+    );
+    await setup.service.handleIncomingMessage(
+      buildMessage('跟进这个项目', { chat_id: 'group-1', chat_type: 'group', actor_id: 'user-b', message_id: 'm-group-prompt-1' }),
+    );
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.workdir).toBe('/tmp/repo-b');
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.prompt).toContain('Current project alias: repo-b');
+
+    await setup.service.handleIncomingMessage(
+      buildMessage('/project repo-a', { chat_id: 'group-1', chat_type: 'group', actor_id: 'user-c', message_id: 'm-group-project-2' }),
+    );
+    await setup.service.handleIncomingMessage(
+      buildMessage('继续处理', { chat_id: 'group-1', chat_type: 'group', actor_id: 'user-a', message_id: 'm-group-prompt-2' }),
+    );
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.workdir).toBe('/tmp/repo-a');
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.prompt).toContain('Current project alias: repo-a');
+  });
+
+  it('keeps different group chats on independent project bindings', async () => {
+    const setup = await createService({
+      projects: {
+        'repo-a': { root: '/tmp/repo-a', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+        'repo-b': { root: '/tmp/repo-b', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+      },
+      service: { default_project: 'repo-a' },
+      security: { require_group_mentions: false },
+    });
+    runCodexTurnMock.mockResolvedValue({
+      sessionId: 'thread-group-routing',
+      finalMessage: 'done',
+      stderr: '',
+      exitCode: 0,
+      capabilities: { version: 'v', exec: {}, resume: {} },
+    });
+
+    await setup.service.handleIncomingMessage(
+      buildMessage('/project repo-b', { chat_id: 'group-a', chat_type: 'group', actor_id: 'user-a', message_id: 'm-group-a-project' }),
+    );
+    await setup.service.handleIncomingMessage(
+      buildMessage('处理 A', { chat_id: 'group-a', chat_type: 'group', actor_id: 'user-b', message_id: 'm-group-a-prompt' }),
+    );
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.workdir).toBe('/tmp/repo-b');
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.prompt).toContain('Current project alias: repo-b');
+
+    await setup.service.handleIncomingMessage(
+      buildMessage('处理 B', { chat_id: 'group-b', chat_type: 'group', actor_id: 'user-c', message_id: 'm-group-b-prompt' }),
+    );
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.workdir).toBe('/tmp/repo-a');
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.prompt).toContain('Current project alias: repo-a');
+  });
+
   it('injects attachment metadata into the Codex prompt for media messages', async () => {
     const writeFile = vi.fn(async (filePath: string) => {
       await fs.writeFile(filePath, 'audio-bytes', 'utf8');

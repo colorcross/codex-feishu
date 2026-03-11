@@ -23,7 +23,7 @@
 
 持久化在 `~/.codex-feishu/state/sessions.json`：
 
-- 当前选择的项目
+- 按 `chat_id` 持久化的当前选择项目
 - 每个项目当前激活的 `thread_id`
 - 每个项目保存过的 session 历史
 - 上一轮 prompt / 响应摘要
@@ -136,7 +136,7 @@ Runner 还支持：
 
 1. `selection key`
 - 保存当前对话选中了哪个项目
-- 默认按 `chat-user` 维度保存，减少多人串线
+- 默认按 `chat_id` 维度保存，让同一个群共享项目绑定
 
 2. `session key`
 - 保存某个项目下对应的 Codex thread

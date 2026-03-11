@@ -27,7 +27,18 @@
 - `/session use` 只切换桥接器已经保存过的会话
 - `/session adopt` 会去本机 `~/.codex/sessions` 里找当前项目可匹配的原生 Codex CLI 会话，再把它接管为当前项目的 active session
 
-## 3. 群聊为什么默认必须 `@机器人`？
+## 3. 飞书消息怎么判断当前是哪个项目？
+
+项目绑定默认按 `chat_id` 记住：
+
+- 同一个私聊窗口会记住上次选中的项目
+- 同一个群会共享一个项目绑定
+- 在群里执行 `/project <alias>`，会直接更新这个群后续消息的默认项目
+- 不同群之间互不影响
+
+如果当前聊天还没切过项目，就回退到 `service.default_project`。
+
+## 4. 群聊为什么默认必须 `@机器人`？
 
 因为这是更安全的默认值。
 
@@ -45,7 +56,7 @@ require_group_mentions = true
 require_group_mentions = false
 ```
 
-## 4. 能否只允许几个私聊和群聊可用？
+## 5. 能否只允许几个私聊和群聊可用？
 
 可以。
 
