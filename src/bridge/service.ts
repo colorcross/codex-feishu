@@ -24,6 +24,9 @@ import { summarizeThreadTurn } from '../memory/summarize.js';
 import { CodexSessionIndex, renderSessionMatchLabel, type IndexedCodexSession } from '../codex/session-index.js';
 import { bindProjectAlias, removeProjectAlias, updateProjectConfig, updateStringList } from '../config/mutate.js';
 import { buildFeishuPost, truncateForFeishuCard } from '../feishu/text.js';
+import { ConfigHistoryStore, type ConfigSnapshot } from '../state/config-history-store.js';
+import { loadBridgeConfig } from '../config/load.js';
+import { writeUtf8Atomic } from '../utils/fs.js';
 
 interface ActiveRunHandle {
   runId: string;
@@ -66,6 +69,8 @@ export class CodexFeishuService {
     private readonly memoryStore: MemoryStore = new MemoryStore(config.storage.dir),
     private readonly codexSessionIndex: CodexSessionIndex = new CodexSessionIndex(),
     private readonly runtimeControl?: RuntimeControl,
+    private readonly adminAuditLog: AuditLog = new AuditLog(config.storage.dir, 'admin-audit.jsonl'),
+    private readonly configHistoryStore: ConfigHistoryStore = new ConfigHistoryStore(config.storage.dir),
   ) {}
 
   public async recoverRuntimeState(): Promise<RunState[]> {
@@ -175,7 +180,7 @@ export class CodexFeishuService {
         await this.handleProjectCommand(context, selectionKey, command.alias);
         return;
       case 'status':
-        await this.handleStatusCommand(context, selectionKey);
+        await this.handleStatusCommand(context, selectionKey, command.detail === true);
         return;
       case 'new':
         await this.handleNewCommand(context, selectionKey);
@@ -253,6 +258,7 @@ export class CodexFeishuService {
             title: '已加入排队',
             body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'queued', scheduled.queued.detail),
             runStatus: 'queued',
+            runId: scheduled.queued.runId,
             replyToMessageId: context.message_id,
             originalText: context.text,
           });
@@ -659,6 +665,7 @@ export class CodexFeishuService {
           title: 'Codex 已完成',
           body: [`项目: ${input.projectAlias}`, `耗时: ${durationSeconds}s`, '', excerpt || 'Codex 已完成，但没有返回可显示文本。'].join('\n'),
           runStatus: 'success',
+          runId,
           replyToMessageId: input.replyToMessageId,
           originalText: input.prompt,
         });
@@ -728,6 +735,7 @@ export class CodexFeishuService {
         title: cancelled ? '运行已取消' : '执行失败',
         body: cancelled ? [`项目: ${input.projectAlias}`, '当前运行已取消。'].join('\n') : [`项目: ${input.projectAlias}`, '执行失败。', '', message].join('\n'),
         runStatus: cancelled ? 'cancelled' : 'failure',
+        runId,
         replyToMessageId: input.replyToMessageId,
         originalText: input.prompt,
       });
@@ -812,7 +820,7 @@ export class CodexFeishuService {
     return { kind: 'adopted', session: adopted };
   }
 
-  private async handleStatusCommand(context: IncomingMessageContext, selectionKey: string): Promise<void> {
+  private async handleStatusCommand(context: IncomingMessageContext, selectionKey: string, detail: boolean = false): Promise<void> {
     const projectContext = await this.resolveProjectContext(context, selectionKey);
     const conversation = await this.sessionStore.getConversation(projectContext.sessionKey);
     if (!conversation) {
@@ -830,7 +838,10 @@ export class CodexFeishuService {
       return;
     }
 
-    await this.sendTextReply(context.chat_id, await this.buildStatusText(projectContext.projectAlias, conversation, activeRun), context.message_id, context.text);
+    const body = detail
+      ? await this.buildDetailedStatusText(projectContext.projectAlias, projectContext.sessionKey, conversation, activeRun)
+      : await this.buildStatusText(projectContext.projectAlias, conversation, activeRun);
+    await this.sendTextReply(context.chat_id, body, context.message_id, context.text);
   }
 
   private async handleNewCommand(context: IncomingMessageContext, selectionKey: string): Promise<void> {
@@ -918,10 +929,7 @@ export class CodexFeishuService {
 
   private async handleAdminCommand(
     context: IncomingMessageContext,
-    command:
-      | { kind: 'admin'; resource: 'admin' | 'group' | 'chat'; action: 'status' | 'list' | 'add' | 'remove'; value?: string }
-      | { kind: 'admin'; resource: 'project'; action: 'add' | 'remove' | 'set' | 'list'; alias?: string; field?: string; value?: string }
-      | { kind: 'admin'; resource: 'service'; action: 'status' | 'restart' },
+    command: Extract<ReturnType<typeof parseBridgeCommand>, { kind: 'admin' }>,
   ): Promise<void> {
     if (!this.isAdminChat(context.chat_id)) {
       await this.sendTextReply(context.chat_id, '当前 chat_id 没有管理员权限。请先在配置里加入 `security.admin_chat_ids`。', context.message_id, context.text);
@@ -934,13 +942,28 @@ export class CodexFeishuService {
     }
 
     if (command.resource === 'service') {
+      if (command.action === 'runs') {
+        await this.sendTextReply(context.chat_id, await this.buildAdminRunsText(), context.message_id, context.text);
+        return;
+      }
       if (command.action === 'restart') {
         await this.sendTextReply(context.chat_id, '配置已保存，正在重启服务。预计数秒内恢复。', context.message_id, context.text);
         this.logger.warn({ chatId: context.chat_id, actorId: context.actor_id }, 'Restart requested by Feishu admin');
+        await this.appendAdminAudit({
+          type: 'admin.service.restart',
+          chat_id: context.chat_id,
+          actor_id: context.actor_id,
+          config_path: this.runtimeControl.configPath,
+        });
         await this.runtimeControl.restart?.();
         return;
       }
-      await this.sendTextReply(context.chat_id, this.buildAdminStatusText(), context.message_id, context.text);
+      await this.sendTextReply(context.chat_id, await this.buildAdminStatusText(), context.message_id, context.text);
+      return;
+    }
+
+    if (command.resource === 'config') {
+      await this.handleAdminConfigCommand(context, command);
       return;
     }
 
@@ -954,6 +977,7 @@ export class CodexFeishuService {
           await this.sendTextReply(context.chat_id, '用法: /admin project add <alias> <root>', context.message_id, context.text);
           return;
         }
+        const snapshot = await this.snapshotConfigForAdminMutation(context, 'project.add', `${command.alias} -> ${path.resolve(command.value)}`);
         await bindProjectAlias({ configPath: this.runtimeControl.configPath, alias: command.alias, root: command.value });
         this.config.projects[command.alias] = {
           root: path.resolve(command.value),
@@ -963,6 +987,14 @@ export class CodexFeishuService {
           wiki_space_ids: [],
         };
         await this.sendTextReply(context.chat_id, `已接入项目: ${command.alias}\n根目录: ${path.resolve(command.value)}`, context.message_id, context.text);
+        await this.appendAdminAudit({
+          type: 'admin.project.add',
+          chat_id: context.chat_id,
+          actor_id: context.actor_id,
+          project_alias: command.alias,
+          root: path.resolve(command.value),
+          snapshot_id: snapshot.id,
+        });
         this.logger.info({ alias: command.alias, root: path.resolve(command.value), actorId: context.actor_id }, 'Project added by Feishu admin');
         return;
       }
@@ -975,9 +1007,17 @@ export class CodexFeishuService {
           await this.sendTextReply(context.chat_id, `不能移除默认项目: ${command.alias}。请先切换 service.default_project。`, context.message_id, context.text);
           return;
         }
+        const snapshot = await this.snapshotConfigForAdminMutation(context, 'project.remove', command.alias);
         await removeProjectAlias(this.runtimeControl.configPath, command.alias);
         delete this.config.projects[command.alias];
         await this.sendTextReply(context.chat_id, `已移除项目: ${command.alias}`, context.message_id, context.text);
+        await this.appendAdminAudit({
+          type: 'admin.project.remove',
+          chat_id: context.chat_id,
+          actor_id: context.actor_id,
+          project_alias: command.alias,
+          snapshot_id: snapshot.id,
+        });
         this.logger.info({ alias: command.alias, actorId: context.actor_id }, 'Project removed by Feishu admin');
         return;
       }
@@ -990,12 +1030,22 @@ export class CodexFeishuService {
         await this.sendTextReply(context.chat_id, '支持字段: root, profile, sandbox, session_scope, mention_required, description', context.message_id, context.text);
         return;
       }
+      const snapshot = await this.snapshotConfigForAdminMutation(context, 'project.set', `${command.alias}.${command.field}=${command.value}`);
       const nextProject = await updateProjectConfig(this.runtimeControl.configPath, command.alias, patch);
       this.config.projects[command.alias] = {
         ...this.requireProject(command.alias),
         ...nextProject,
       };
       await this.sendTextReply(context.chat_id, `已更新项目 ${command.alias}\n字段: ${command.field}\n值: ${command.value}`, context.message_id, context.text);
+      await this.appendAdminAudit({
+        type: 'admin.project.set',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        project_alias: command.alias,
+        field: command.field,
+        value: command.value,
+        snapshot_id: snapshot.id,
+      });
       this.logger.info({ alias: command.alias, field: command.field, actorId: context.actor_id }, 'Project config updated by Feishu admin');
       return;
     }
@@ -1008,10 +1058,18 @@ export class CodexFeishuService {
       await this.sendTextReply(context.chat_id, `用法: /admin ${command.resource} ${command.action} <chat_id>`, context.message_id, context.text);
       return;
     }
+    const snapshot = await this.snapshotConfigForAdminMutation(context, `${command.resource}.${command.action}`, command.value);
     const { section, key } = resolveAdminListTarget(command.resource);
     const nextValues = await updateStringList(this.runtimeControl.configPath, section, key, command.value, command.action);
     this.applyAdminListValues(command.resource, nextValues);
     await this.sendTextReply(context.chat_id, `已${command.action === 'add' ? '添加' : '移除'} ${command.resource}:\n${command.value}`, context.message_id, context.text);
+    await this.appendAdminAudit({
+      type: `admin.${command.resource}.${command.action}`,
+      chat_id: context.chat_id,
+      actor_id: context.actor_id,
+      value: command.value,
+      snapshot_id: snapshot.id,
+    });
     this.logger.info({ resource: command.resource, action: command.action, value: command.value, actorId: context.actor_id }, 'Feishu access list updated by admin');
   }
 
@@ -1954,6 +2012,35 @@ export class CodexFeishuService {
     ].join('\n');
   }
 
+  private async buildDetailedStatusText(
+    projectAlias: string,
+    sessionKey: string,
+    conversation: ConversationState,
+    activeRun?: RunState | null,
+  ): Promise<string> {
+    const session = conversation.projects[projectAlias];
+    const runs = await this.runStateStore.listRuns();
+    const currentProjectRuns = runs.filter((run) => run.queue_key === buildQueueKey(sessionKey, projectAlias));
+    const recentFailure = currentProjectRuns.find((run) => run.status === 'failure' || run.status === 'cancelled' || run.status === 'stale');
+    const lines = [
+      await this.buildStatusText(projectAlias, conversation, activeRun),
+      '',
+      '详细状态',
+      `当前队列耗时: ${activeRun ? formatAgeFromNow(activeRun.started_at) : '无'}`,
+      `当前运行更新时间: ${activeRun ? formatAgeFromNow(activeRun.updated_at) : '无'}`,
+      activeRun?.project_root ? `项目根: ${activeRun.project_root}` : null,
+      activeRun?.prompt_excerpt ? `当前提示摘要: ${activeRun.prompt_excerpt}` : null,
+      recentFailure ? '' : null,
+      recentFailure ? '最近失败' : null,
+      recentFailure ? `状态: ${recentFailure.status}` : null,
+      recentFailure?.error ? `原因: ${recentFailure.error}` : null,
+      recentFailure ? `发生时间: ${recentFailure.updated_at}` : null,
+      session?.last_prompt ? '' : null,
+      session?.last_prompt ? `最近提示词: ${truncateExcerpt(session.last_prompt, 120)}` : null,
+    ];
+    return lines.filter(Boolean).join('\n');
+  }
+
   private buildStatusCardFromConversation(projectAlias: string, sessionKey: string, conversation: ConversationState, activeRun?: RunState | null): Record<string, unknown> {
     const session = conversation.projects[projectAlias];
     const sessionCount = Object.keys(session?.sessions ?? {}).length;
@@ -2334,7 +2421,8 @@ export class CodexFeishuService {
     return this.config.security.admin_chat_ids.includes(chatId);
   }
 
-  private buildAdminStatusText(): string {
+  private async buildAdminStatusText(): Promise<string> {
+    const snapshots = await this.configHistoryStore.listSnapshots();
     return [
       '管理员配置',
       '',
@@ -2344,6 +2432,7 @@ export class CodexFeishuService {
       `项目数: ${Object.keys(this.config.projects).length}`,
       `默认项目: ${this.config.service.default_project ?? '未设置'}`,
       `回复模式: ${this.config.service.reply_mode}`,
+      `配置快照数: ${snapshots.length}`,
       `可写配置: ${this.runtimeControl?.configPath ?? '无'}`,
     ].join('\n');
   }
@@ -2364,6 +2453,125 @@ export class CodexFeishuService {
       return `- ${alias}: ${project.root} | ${flags}`;
     });
     return ['当前项目列表:', ...(lines.length > 0 ? lines : ['(empty)'])].join('\n');
+  }
+
+  private async buildAdminRunsText(): Promise<string> {
+    const runs = await this.runStateStore.listRuns();
+    const active = runs.filter((run) => isVisibleRunStatus(run.status)).slice(0, 10);
+    const recentFailures = runs.filter((run) => run.status === 'failure' || run.status === 'cancelled' || run.status === 'stale').slice(0, 5);
+
+    const lines = ['当前运行列表'];
+    if (active.length === 0) {
+      lines.push('', 'active/queued: (empty)');
+    } else {
+      lines.push('', 'active/queued:');
+      for (const run of active) {
+        lines.push(
+          `- ${run.project_alias} | ${run.status} | chat=${run.chat_id} | 已持续 ${formatAgeFromNow(run.started_at)}${run.project_root ? ` | root=${run.project_root}` : ''}`,
+        );
+        lines.push(`  prompt=${truncateExcerpt(run.prompt_excerpt, 80)}`);
+        if (run.status_detail) {
+          lines.push(`  detail=${truncateExcerpt(run.status_detail, 120)}`);
+        }
+      }
+    }
+
+    if (recentFailures.length > 0) {
+      lines.push('', '最近失败:');
+      for (const run of recentFailures) {
+        lines.push(`- ${run.project_alias} | ${run.status} | ${run.updated_at}`);
+        lines.push(`  error=${truncateExcerpt(run.error ?? 'unknown', 120)}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  private async handleAdminConfigCommand(
+    context: IncomingMessageContext,
+    command: { kind: 'admin'; resource: 'config'; action: 'history' | 'rollback'; value?: string },
+  ): Promise<void> {
+    if (!this.runtimeControl?.configPath) {
+      await this.sendTextReply(context.chat_id, '当前运行实例没有可写配置路径，无法执行配置历史操作。', context.message_id, context.text);
+      return;
+    }
+
+    if (command.action === 'history') {
+      const snapshots = await this.configHistoryStore.listSnapshots();
+      if (snapshots.length === 0) {
+        await this.sendTextReply(context.chat_id, '当前没有可回滚的配置快照。', context.message_id, context.text);
+        return;
+      }
+      const lines = ['最近配置快照:'];
+      for (const snapshot of snapshots) {
+        lines.push(`- ${snapshot.id} | ${snapshot.at} | ${snapshot.action}${snapshot.summary ? ` | ${snapshot.summary}` : ''}`);
+      }
+      await this.sendTextReply(context.chat_id, lines.join('\n'), context.message_id, context.text);
+      return;
+    }
+
+    const target = await this.configHistoryStore.getSnapshot(command.value);
+    if (!target) {
+      await this.sendTextReply(context.chat_id, '未找到指定配置快照。可先执行 `/admin config history`。', context.message_id, context.text);
+      return;
+    }
+
+    const rollbackSnapshot = await this.snapshotConfigForAdminMutation(context, 'config.rollback', `rollback -> ${target.id}`);
+    const previousContent = rollbackSnapshot.content;
+    try {
+      await writeUtf8Atomic(this.runtimeControl.configPath, target.content);
+      await this.reloadRuntimeConfigFromDisk(this.runtimeControl.configPath);
+    } catch (error) {
+      await writeUtf8Atomic(this.runtimeControl.configPath, previousContent);
+      await this.reloadRuntimeConfigFromDisk(this.runtimeControl.configPath);
+      throw error;
+    }
+    await this.appendAdminAudit({
+      type: 'admin.config.rollback',
+      chat_id: context.chat_id,
+      actor_id: context.actor_id,
+      target_snapshot_id: target.id,
+      snapshot_id: rollbackSnapshot.id,
+      config_path: this.runtimeControl.configPath,
+    });
+    await this.sendTextReply(
+      context.chat_id,
+      `已回滚配置。\n目标快照: ${target.id}\n回滚前快照: ${rollbackSnapshot.id}\n如需生效到某些运行时状态，请再执行 /admin service restart。`,
+      context.message_id,
+      context.text,
+    );
+  }
+
+  private async snapshotConfigForAdminMutation(
+    context: IncomingMessageContext,
+    action: string,
+    summary?: string,
+  ): Promise<ConfigSnapshot> {
+    if (!this.runtimeControl?.configPath) {
+      throw new Error('Runtime config path is unavailable');
+    }
+    return this.configHistoryStore.recordSnapshot({
+      configPath: this.runtimeControl.configPath,
+      action,
+      summary,
+      chatId: context.chat_id,
+      actorId: context.actor_id,
+      limit: 5,
+    });
+  }
+
+  private async appendAdminAudit(event: { type: string; [key: string]: unknown }): Promise<void> {
+    await this.adminAuditLog.append(event);
+  }
+
+  private async reloadRuntimeConfigFromDisk(configPath: string): Promise<void> {
+    const { config: nextConfig } = await loadBridgeConfig({ cwd: process.cwd(), configPath });
+    replaceObject(this.config.service, nextConfig.service);
+    replaceObject(this.config.codex, nextConfig.codex);
+    replaceObject(this.config.storage, nextConfig.storage);
+    replaceObject(this.config.security, nextConfig.security);
+    replaceObject(this.config.feishu, nextConfig.feishu);
+    replaceProjects(this.config.projects, nextConfig.projects);
   }
 
   private parseProjectPatch(field: string, value: string): Partial<ProjectConfig> | null {
@@ -2427,22 +2635,55 @@ export class CodexFeishuService {
         body: formattedBody,
       });
       await this.sendCardReply(chatId, card, replyToMessageId);
+      await this.auditLog.append({
+        type: 'message.replied',
+        chat_id: chatId,
+        reply_mode: 'card',
+        reply_to_message_id: replyToMessageId,
+        title,
+      });
       return;
     }
     if (this.config.service.reply_mode === 'post') {
       const post = buildFeishuPost(title, formattedBody);
       if (this.config.service.reply_quote_user_message && replyToMessageId) {
         await this.feishuClient.sendPost(chatId, post, { replyToMessageId });
+        await this.auditLog.append({
+          type: 'message.replied',
+          chat_id: chatId,
+          reply_mode: 'post',
+          reply_to_message_id: replyToMessageId,
+          title,
+        });
         return;
       }
       await this.feishuClient.sendPost(chatId, post);
+      await this.auditLog.append({
+        type: 'message.replied',
+        chat_id: chatId,
+        reply_mode: 'post',
+        title,
+      });
       return;
     }
     if (this.config.service.reply_quote_user_message && replyToMessageId) {
       await this.feishuClient.sendText(chatId, this.sanitizeUserVisibleReply(body), { replyToMessageId });
+      await this.auditLog.append({
+        type: 'message.replied',
+        chat_id: chatId,
+        reply_mode: 'text',
+        reply_to_message_id: replyToMessageId,
+        title,
+      });
       return;
     }
     await this.feishuClient.sendText(chatId, formattedBody);
+    await this.auditLog.append({
+      type: 'message.replied',
+      chat_id: chatId,
+      reply_mode: 'text',
+      title,
+    });
   }
 
   private async sendCardReply(chatId: string, card: Record<string, unknown>, replyToMessageId?: string): Promise<void> {
@@ -2459,6 +2700,7 @@ export class CodexFeishuService {
     title: string;
     body: string;
     runStatus: string;
+    runId?: string;
     replyToMessageId?: string;
     originalText?: string;
   }): Promise<void> {
@@ -2474,9 +2716,23 @@ export class CodexFeishuService {
         }),
         input.replyToMessageId,
       );
+      await this.auditLog.append({
+        type: 'codex.run.replied',
+        chat_id: input.chatId,
+        project_alias: input.projectAlias,
+        run_status: input.runStatus,
+        ...(input.runId ? { run_id: input.runId } : {}),
+      });
       return;
     }
     await this.sendTextReply(input.chatId, input.body, input.replyToMessageId, input.originalText);
+    await this.auditLog.append({
+      type: 'codex.run.replied',
+      chat_id: input.chatId,
+      project_alias: input.projectAlias,
+      run_status: input.runStatus,
+      ...(input.runId ? { run_id: input.runId } : {}),
+    });
   }
 
   private formatQuotedReply(body: string, originalText?: string): string {
@@ -2521,6 +2777,10 @@ export function buildProjectRootQueueKey(projectRoot: string): string {
 
 function isExecutionRunStatus(status: RunState['status']): boolean {
   return status === 'running' || status === 'orphaned';
+}
+
+function isVisibleRunStatus(status: RunState['status']): boolean {
+  return status === 'queued' || isExecutionRunStatus(status);
 }
 
 function buildMessageDedupeKey(context: IncomingMessageContext): string {
@@ -2579,4 +2839,46 @@ function renderMemorySection(title: string, items: Array<{ title: string; conten
 function renderSessionMatch(session: Pick<IndexedCodexSession, 'matchKind' | 'matchScore'>): string {
   const label = renderSessionMatchLabel(session);
   return session.matchScore ? `${label} (${session.matchScore})` : label;
+}
+
+function formatAgeFromNow(isoTimestamp: string): string {
+  const deltaMs = Date.now() - Date.parse(isoTimestamp);
+  if (!Number.isFinite(deltaMs) || deltaMs < 0) {
+    return '0s';
+  }
+  const totalSeconds = Math.floor(deltaMs / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m`;
+  }
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 24) {
+    return `${totalHours}h`;
+  }
+  return `${Math.floor(totalHours / 24)}d`;
+}
+
+function replaceObject(target: Record<string, unknown>, next: Record<string, unknown>): void {
+  for (const key of Object.keys(target)) {
+    if (!(key in next)) {
+      delete target[key];
+    }
+  }
+  for (const [key, value] of Object.entries(next)) {
+    target[key] = value;
+  }
+}
+
+function replaceProjects(target: BridgeConfig['projects'], next: BridgeConfig['projects']): void {
+  for (const key of Object.keys(target)) {
+    if (!(key in next)) {
+      delete target[key];
+    }
+  }
+  for (const [alias, project] of Object.entries(next)) {
+    target[alias] = project;
+  }
 }

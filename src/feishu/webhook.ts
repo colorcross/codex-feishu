@@ -72,7 +72,17 @@ export async function createWebhookBridgeServer(input: {
     if (request.url === '/healthz' || request.url === '/readyz') {
       response.statusCode = 200;
       response.setHeader('content-type', 'application/json; charset=utf-8');
-      response.end(JSON.stringify({ ok: true, transport: 'webhook' }));
+      response.end(
+        JSON.stringify({
+          ok: true,
+          ready: request.url === '/readyz',
+          transport: 'webhook',
+          service: input.config.service.name,
+          event_path: input.config.feishu.event_path,
+          card_path: input.config.feishu.card_path,
+          timestamp: new Date().toISOString(),
+        }),
+      );
       return;
     }
 

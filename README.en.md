@@ -136,6 +136,13 @@ Common runtime commands:
 - `codex-feishu stop --force`: stop the bridge and force-kill if needed
 - `codex-feishu restart`: restart the background bridge
 
+Useful Feishu-side ops commands:
+
+- `/status detail`: show queue duration and the latest failure for the current project
+- `/admin runs`: inspect active and queued runs across chats
+- `/admin config history`: list recent config snapshots
+- `/admin config rollback <id|latest>`: roll back to a recent config snapshot
+
 ## Documentation
 
 - [English docs index](docs/README.en.md)

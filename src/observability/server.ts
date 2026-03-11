@@ -5,6 +5,7 @@ import { MetricsRegistry } from './metrics.js';
 export async function startMetricsServer(input: {
   host: string;
   port: number;
+  serviceName: string;
   logger: Logger;
   metrics: MetricsRegistry;
 }): Promise<{
@@ -27,7 +28,15 @@ export async function startMetricsServer(input: {
     if (request.url === '/healthz' || request.url === '/readyz') {
       response.statusCode = 200;
       response.setHeader('content-type', 'application/json; charset=utf-8');
-      response.end(JSON.stringify({ ok: true, admin: true }));
+      response.end(
+        JSON.stringify({
+          ok: true,
+          ready: request.url === '/readyz',
+          surface: 'metrics',
+          service: input.serviceName,
+          timestamp: new Date().toISOString(),
+        }),
+      );
       return;
     }
 

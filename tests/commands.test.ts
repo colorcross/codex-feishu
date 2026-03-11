@@ -4,6 +4,7 @@ import { buildHelpText, normalizeIncomingText, parseBridgeCommand } from '../src
 describe('bridge commands', () => {
   it('parses project switch commands', () => {
     expect(parseBridgeCommand('/project repo-a')).toEqual({ kind: 'project', alias: 'repo-a' });
+    expect(parseBridgeCommand('/status detail')).toEqual({ kind: 'status', detail: true });
   });
 
   it('parses session commands', () => {
@@ -33,6 +34,9 @@ describe('bridge commands', () => {
       value: 'true',
     });
     expect(parseBridgeCommand('/admin service restart')).toEqual({ kind: 'admin', resource: 'service', action: 'restart' });
+    expect(parseBridgeCommand('/admin runs')).toEqual({ kind: 'admin', resource: 'service', action: 'runs' });
+    expect(parseBridgeCommand('/admin config history')).toEqual({ kind: 'admin', resource: 'config', action: 'history' });
+    expect(parseBridgeCommand('/admin config rollback latest')).toEqual({ kind: 'admin', resource: 'config', action: 'rollback', value: 'latest' });
     expect(parseBridgeCommand('/cancel')).toEqual({ kind: 'cancel' });
     expect(parseBridgeCommand('/kb status')).toEqual({ kind: 'kb', action: 'status' });
     expect(parseBridgeCommand('/kb search install')).toEqual({ kind: 'kb', action: 'search', query: 'install' });
@@ -149,6 +153,7 @@ describe('bridge commands', () => {
 
   it('supports high-confidence natural language commands', () => {
     expect(parseBridgeCommand('查看状态')).toEqual({ kind: 'status' });
+    expect(parseBridgeCommand('查看详细状态')).toEqual({ kind: 'status', detail: true });
     expect(parseBridgeCommand('项目列表')).toEqual({ kind: 'projects' });
     expect(parseBridgeCommand('新会话')).toEqual({ kind: 'new' });
     expect(parseBridgeCommand('切换到项目 repo-a')).toEqual({ kind: 'project', alias: 'repo-a' });
@@ -170,6 +175,7 @@ describe('bridge commands', () => {
       value: 'false',
     });
     expect(parseBridgeCommand('重启服务')).toEqual({ kind: 'admin', resource: 'service', action: 'restart' });
+    expect(parseBridgeCommand('查看运行列表')).toEqual({ kind: 'admin', resource: 'service', action: 'runs' });
   });
 
   it('normalizes leading mentions', () => {
@@ -179,11 +185,15 @@ describe('bridge commands', () => {
   it('renders help text with key commands', () => {
     const helpText = buildHelpText();
     expect(helpText).toContain('/projects');
+    expect(helpText).toContain('/status detail');
     expect(helpText).toContain('/new');
     expect(helpText).toContain('/session list');
     expect(helpText).toContain('/session adopt latest');
     expect(helpText).toContain('/session adopt list');
     expect(helpText).toContain('/admin status');
+    expect(helpText).toContain('/admin runs');
+    expect(helpText).toContain('/admin config history');
+    expect(helpText).toContain('/admin config rollback <id|latest>');
     expect(helpText).toContain('/admin service restart');
     expect(helpText).toContain('/cancel');
     expect(helpText).toContain('/kb search');

@@ -17,6 +17,7 @@ import { AuditLog } from '../src/state/audit-log.js';
 import { IdempotencyStore } from '../src/state/idempotency-store.js';
 import { RunStateStore } from '../src/state/run-state-store.js';
 import { MemoryStore } from '../src/state/memory-store.js';
+import { writeToml } from '../src/config/load.js';
 
 const tempDirs: string[] = [];
 const originalCodexHome = process.env.CODEX_HOME;
@@ -179,6 +180,70 @@ describe('bridge service', () => {
 
     await setup.service.handleIncomingMessage(buildMessage('/admin service restart', { message_id: 'm-admin-restart' }));
     expect(setup.restart).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows detailed status including recent failure context', async () => {
+    const setup = await createService();
+    runCodexTurnMock.mockRejectedValue(new Error('command failed'));
+
+    await setup.service.handleIncomingMessage(buildMessage('触发失败', { message_id: 'm-status-failure' }));
+    await setup.service.handleIncomingMessage(buildMessage('/status detail', { message_id: 'm-status-detail' }));
+
+    const lastReply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(lastReply).toContain('详细状态');
+    expect(lastReply).toContain('最近失败');
+    expect(lastReply).toContain('command failed');
+  });
+
+  it('lists active runs for admins', async () => {
+    const setup = await createService({
+      security: {
+        admin_chat_ids: ['chat'],
+      },
+    });
+    let resolveRun: ((value: unknown) => void) | undefined;
+    runCodexTurnMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRun = resolve;
+        }),
+    );
+
+    const runPromise = setup.service.handleIncomingMessage(buildMessage('长任务', { message_id: 'm-admin-runs-trigger' }));
+    await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(1));
+    await setup.service.handleIncomingMessage(buildMessage('/admin runs', { message_id: 'm-admin-runs' }));
+
+    const lastReply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(lastReply).toContain('当前运行列表');
+    expect(lastReply).toContain('default | running');
+
+    resolveRun?.({ sessionId: 'thread-admin-runs', finalMessage: 'done', stderr: '', exitCode: 0, capabilities: { version: 'v', exec: {}, resume: {} } });
+    await runPromise;
+  });
+
+  it('keeps config snapshots and supports rollback from Feishu admin commands', async () => {
+    const setup = await createService({
+      security: {
+        admin_chat_ids: ['chat'],
+      },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('/admin group add oc_group_1', { message_id: 'm-admin-group-add' }));
+    await setup.service.handleIncomingMessage(buildMessage('/admin group remove oc_group_1', { message_id: 'm-admin-group-remove' }));
+    await setup.service.handleIncomingMessage(buildMessage('/admin config history', { message_id: 'm-admin-config-history' }));
+
+    const historyReply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(historyReply).toContain('最近配置快照');
+    expect(historyReply).toContain('group.remove');
+
+    await setup.service.handleIncomingMessage(buildMessage('/admin config rollback latest', { message_id: 'm-admin-config-rollback' }));
+    expect(setup.config.feishu.allowed_group_ids).toContain('oc_group_1');
+
+    const adminAudit = new AuditLog(setup.config.storage.dir, 'admin-audit.jsonl');
+    const adminEvents = await adminAudit.tail(10);
+    expect(adminEvents.some((event) => event.type === 'admin.group.add')).toBe(true);
+    expect(adminEvents.some((event) => event.type === 'admin.group.remove')).toBe(true);
+    expect(adminEvents.some((event) => event.type === 'admin.config.rollback')).toBe(true);
   });
 
   it('supports listing and switching saved sessions', async () => {
@@ -1318,7 +1383,7 @@ async function createService(overrides: TestConfigOverrides = {}) {
 
   const config = buildConfig(dir, overrides);
   const configPath = path.join(dir, 'config.toml');
-  await fs.writeFile(configPath, '', 'utf8');
+  await writeToml(configPath, config as unknown as Record<string, unknown>);
   const sessionStore = new SessionStore(config.storage.dir);
   const auditLog = new AuditLog(config.storage.dir);
   const idempotencyStore = new IdempotencyStore(config.storage.dir);

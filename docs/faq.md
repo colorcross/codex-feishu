@@ -142,6 +142,13 @@ allowed_project_roots = ["/"]
 
 如果你是在飞书里联调，还会看到一条即时状态提示，明确显示消息是否已接收以及当前处理状态。
 
+飞书侧进一步排障时，可直接用：
+
+- `/status detail`
+- `/admin runs`
+- `/admin config history`
+- `/admin config rollback <id|latest>`
+
 ## 11. 管理员怎么动态开通 chat / group / project？
 
 先把管理员 chat_id 配进去：

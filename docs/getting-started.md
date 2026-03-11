@@ -188,6 +188,13 @@ allowed_group_ids = ["oc_group_1", "oc_group_2"]
 - `codex-feishu restart`：重启后台服务
 - `codex-feishu audit tail --limit 20`：查看最近审计事件
 
+常用飞书端运维命令：
+
+- `/status detail`：查看当前项目的详细运行状态、排队耗时和最近失败
+- `/admin runs`：管理员查看所有 active / queued 运行和最近失败
+- `/admin config history`：查看最近 5 次配置快照
+- `/admin config rollback <id|latest>`：回滚配置快照
+
 ## 回复模式
 
 配置项：

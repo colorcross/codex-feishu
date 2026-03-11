@@ -19,8 +19,8 @@ export class AuditLog {
   private readonly filePath: string;
   private readonly serial = new SerialExecutor();
 
-  public constructor(stateDir: string) {
-    this.filePath = path.join(stateDir, 'audit.jsonl');
+  public constructor(stateDir: string, fileName: string = 'audit.jsonl') {
+    this.filePath = path.join(stateDir, fileName);
   }
 
   public async append(event: AppendAuditEvent): Promise<void> {

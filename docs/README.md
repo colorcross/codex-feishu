@@ -28,6 +28,7 @@
   - 最小配置
   - 飞书侧联调
   - 常用命令
+  - `/status detail` / `/admin runs` / 配置回滚
   - `reply_mode` / 富文本 / 卡片
   - 自然语言命令触发
   - 管理员动态接入与 `/admin` 命令

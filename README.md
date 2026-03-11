@@ -375,6 +375,13 @@ admin_chat_ids = ["oc_admin_chat_1"]
 - `codex-feishu doctor --remote`：同时检查本地配置和飞书远端联通性
 - `codex-feishu feishu inspect`：检查飞书环境、reply mode 和 webhook/long-connection 配置
 
+常用飞书排障命令：
+
+- `/status detail`：查看当前项目的详细运行状态、排队耗时和最近失败原因
+- `/admin runs`：管理员查看所有 active / queued 运行和最近失败
+- `/admin config history`：查看最近 5 次配置快照
+- `/admin config rollback <id|latest>`：回滚到指定配置快照
+
 ## 仓库结构
 
 ```text

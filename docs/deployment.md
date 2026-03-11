@@ -131,6 +131,12 @@ Webhook 模式建议暴露：
 
 - 指标入口：`/metrics`
 
+返回契约建议按下面理解：
+
+- `/healthz`：进程和 HTTP 面正常，返回 `ok/service/timestamp`
+- `/readyz`：服务当前可接收流量，返回 `ok/ready/service/timestamp`
+- `/metrics`：Prometheus 文本格式指标
+
 Prometheus 示例文件：
 
 - 抓取配置：`examples/prometheus.yml`
@@ -144,6 +150,14 @@ Prometheus 示例文件：
 ```bash
 promtool check rules examples/alerts.yml
 ```
+
+重点告警已放在 `examples/alerts.yml`：
+
+- bridge down
+- 30 分钟无新消息
+- 飞书出站失败
+- Codex 失败率过高
+- 活跃运行长时间无成功完成
 
 本地启动完整观测栈：
 

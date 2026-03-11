@@ -5,13 +5,14 @@ export interface MemoryCommandFilters {
   created_by?: string;
 }
 
-export type AdminResource = 'admin' | 'group' | 'chat' | 'project' | 'service';
+export type AdminResource = 'admin' | 'group' | 'chat' | 'project' | 'service' | 'config';
 export type AdminListAction = 'status' | 'list' | 'add' | 'remove';
 export type AdminProjectAction = 'add' | 'remove' | 'set' | 'list';
+export type AdminConfigAction = 'history' | 'rollback';
 
 export type BridgeCommand =
   | { kind: 'help' }
-  | { kind: 'status' }
+  | { kind: 'status'; detail?: boolean }
   | { kind: 'projects' }
   | { kind: 'new' }
   | { kind: 'cancel' }
@@ -21,9 +22,10 @@ export type BridgeCommand =
   | { kind: 'project'; alias?: string }
   | { kind: 'session'; action: 'list' | 'use' | 'new' | 'drop'; threadId?: string }
   | { kind: 'session'; action: 'adopt'; target?: string }
-  | { kind: 'admin'; resource: Exclude<AdminResource, 'project' | 'service'>; action: AdminListAction; value?: string }
+  | { kind: 'admin'; resource: Exclude<AdminResource, 'project' | 'service' | 'config'>; action: AdminListAction; value?: string }
   | { kind: 'admin'; resource: 'project'; action: AdminProjectAction; alias?: string; field?: string; value?: string }
-  | { kind: 'admin'; resource: 'service'; action: 'status' | 'restart' }
+  | { kind: 'admin'; resource: 'service'; action: 'status' | 'restart' | 'runs' }
+  | { kind: 'admin'; resource: 'config'; action: AdminConfigAction; value?: string }
   | { kind: 'prompt'; prompt: string };
 
 export function parseBridgeCommand(input: string): BridgeCommand {
@@ -44,7 +46,7 @@ export function parseBridgeCommand(input: string): BridgeCommand {
     case '/help':
       return { kind: 'help' };
     case '/status':
-      return { kind: 'status' };
+      return { kind: 'status', detail: argument === 'detail' };
     case '/projects':
       return { kind: 'projects' };
     case '/new':
@@ -80,12 +82,25 @@ export function buildHelpText(): string {
   return [
     'Codex Feishu',
     '',
+    '基础控制',
     '/help 查看帮助',
     '/projects 列出可用项目',
     '/project <alias> 切换当前项目',
     '/status 查看当前项目、会话与运行状态',
+    '/status detail 查看当前项目的详细运行状态、排队耗时与最近失败',
     '/new 为当前项目新开会话',
     '/cancel 取消当前项目正在运行的任务',
+    '',
+    '会话管理',
+    '/session list 列出当前项目保存过的会话',
+    '/session use <thread_id> 切换到指定会话',
+    '/session new 让下一条消息新开会话',
+    '/session drop [thread_id] 删除指定或当前会话',
+    '/session adopt latest 接管当前项目最近的本地 Codex 会话',
+    '/session adopt list 列出当前项目可接管的本地 Codex 会话',
+    '/session adopt <thread_id> 接管指定本地 Codex 会话',
+    '',
+    '知识与记忆',
     '/kb status 查看当前项目知识库目录',
     '/kb search <query> 搜索项目文档/知识库',
     '/memory status 查看当前项目记忆状态',
@@ -112,6 +127,8 @@ export function buildHelpText(): string {
     '/memory forget group <id> 归档一条群共享记忆',
     '/memory restore <id> 恢复一条已归档项目记忆',
     '/memory restore group <id> 恢复一条已归档群共享记忆',
+    '',
+    '飞书知识库',
     '/wiki spaces 列出可访问的飞书知识空间',
     '/wiki search <query> 搜索飞书知识库',
     '/wiki read <url|token> 读取飞书文档纯文本摘要',
@@ -123,14 +140,10 @@ export function buildHelpText(): string {
     '/wiki members [space_id] 查看知识空间成员',
     '/wiki grant <space_id> <member_type> <member_id> [member|admin] 添加知识空间成员',
     '/wiki revoke <space_id> <member_type> <member_id> [member|admin] 移除知识空间成员',
-    '/session list 列出当前项目保存过的会话',
-    '/session use <thread_id> 切换到指定会话',
-    '/session new 让下一条消息新开会话',
-    '/session drop [thread_id] 删除指定或当前会话',
-    '/session adopt latest 接管当前项目最近的本地 Codex 会话',
-    '/session adopt list 列出当前项目可接管的本地 Codex 会话',
-    '/session adopt <thread_id> 接管指定本地 Codex 会话',
+    '',
+    '管理员',
     '/admin status 查看管理员配置摘要',
+    '/admin runs 查看所有 active/queued 运行及最近失败',
     '/admin admin list 查看管理员 chat_id 列表',
     '/admin admin add <chat_id> 添加管理员 chat_id',
     '/admin admin remove <chat_id> 移除管理员 chat_id',
@@ -144,10 +157,12 @@ export function buildHelpText(): string {
     '/admin project add <alias> <root> 动态接入项目',
     '/admin project remove <alias> 移除项目',
     '/admin project set <alias> <field> <value> 修改项目配置',
+    '/admin config history 查看最近 5 次配置快照',
+    '/admin config rollback <id|latest> 回滚到最近配置快照',
     '/admin service restart 保存配置并重启服务',
     '',
     '也支持高置信度自然语言触发，例如：',
-    '查看状态 / 项目列表 / 新会话 / 取消当前任务 / 切换到项目 repo-a / 接管最新会话 / 重启服务',
+    '查看状态 / 查看详细状态 / 项目列表 / 新会话 / 取消当前任务 / 切换到项目 repo-a / 接管最新会话 / 重启服务',
     '',
     '直接发送文本会进入当前项目的 Codex 会话。',
   ].join('\n');
@@ -168,6 +183,9 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
   }
   if (/^(查看状态|当前状态|运行状态|看状态)$/.test(normalized)) {
     return { kind: 'status' };
+  }
+  if (/^(查看详细状态|详细状态|状态详情)$/.test(normalized)) {
+    return { kind: 'status', detail: true };
   }
   if (/^(查看项目|项目列表|列出项目|有哪些项目)$/.test(normalized)) {
     return { kind: 'projects' };
@@ -200,6 +218,9 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
 
   if (/^(管理员状态|查看管理员状态)$/.test(normalized)) {
     return { kind: 'admin', resource: 'service', action: 'status' };
+  }
+  if (/^(查看运行列表|查看运行状态列表|管理员运行列表)$/.test(normalized)) {
+    return { kind: 'admin', resource: 'service', action: 'runs' };
   }
   if (/^(重启服务|重启机器人|重启 codex-feishu 服务)$/i.test(normalized)) {
     return { kind: 'admin', resource: 'service', action: 'restart' };
@@ -270,8 +291,28 @@ function parseAdminCommand(argument: string): BridgeCommand {
     return { kind: 'admin', resource: 'service', action: 'status' };
   }
 
+  if (resource === 'runs') {
+    return { kind: 'admin', resource: 'service', action: 'runs' };
+  }
+
   if (resource === 'service') {
-    return { kind: 'admin', resource: 'service', action: action === 'restart' ? 'restart' : 'status' };
+    if (action === 'restart') {
+      return { kind: 'admin', resource: 'service', action: 'restart' };
+    }
+    if (action === 'runs') {
+      return { kind: 'admin', resource: 'service', action: 'runs' };
+    }
+    return { kind: 'admin', resource: 'service', action: 'status' };
+  }
+
+  if (resource === 'config') {
+    if (!action || action === 'history') {
+      return { kind: 'admin', resource: 'config', action: 'history' };
+    }
+    if (action === 'rollback') {
+      return { kind: 'admin', resource: 'config', action: 'rollback', value: rest.join(' ').trim() || undefined };
+    }
+    return { kind: 'prompt', prompt: `/admin${argument ? ` ${argument}` : ''}`.trim() };
   }
 
   if (resource === 'project') {

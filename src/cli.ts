@@ -215,6 +215,7 @@ const serveCommand = program
         ? await startMetricsServer({
             host: config.service.metrics_host,
             port: config.service.metrics_port,
+            serviceName: config.service.name,
             logger,
             metrics,
           })
