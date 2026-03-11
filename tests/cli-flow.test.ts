@@ -3,13 +3,15 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RunStateStore } from '../src/state/run-state-store.js';
 
 const tempDirs: string[] = [];
 const servers: http.Server[] = [];
-const cliEntry = '/Users/dh/codex-feishu-bridge/src/cli.ts';
-const tsxBin = '/Users/dh/codex-feishu-bridge/node_modules/.bin/tsx';
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const cliEntry = path.join(repoRoot, 'src', 'cli.ts');
+const tsxBin = path.join(repoRoot, 'node_modules', '.bin', 'tsx');
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
@@ -260,7 +262,7 @@ describe('cli flow', () => {
     });
 
     const result = await runCliAsync(['webhook', 'smoke', '--base-url', `http://127.0.0.1:${address.port}`], {
-      cwd: '/Users/dh/codex-feishu-bridge',
+      cwd: repoRoot,
     });
 
     expect(result.status).toBe(0);
@@ -360,8 +362,8 @@ describe('cli flow', () => {
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-install-project-'));
     tempDirs.push(home, projectRoot);
 
-    const result = spawnSync('bash', ['/Users/dh/codex-feishu-bridge/scripts/install.sh', '--skip-global-install', '--project-root', projectRoot, '--alias', 'repo-install'], {
-      cwd: '/Users/dh/codex-feishu-bridge',
+    const result = spawnSync('bash', [path.join(repoRoot, 'scripts', 'install.sh'), '--skip-global-install', '--project-root', projectRoot, '--alias', 'repo-install'], {
+      cwd: repoRoot,
       env: {
         ...process.env,
         HOME: home,
