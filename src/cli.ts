@@ -29,6 +29,7 @@ import { MetricsRegistry } from './observability/metrics.js';
 import { startMetricsServer } from './observability/server.js';
 import { buildReplayCardAction, buildReplayMessageEvent, postWebhookPayload, requestWebhookEndpoint } from './feishu/replay.js';
 import { isProcessAlive, terminateProcess } from './runtime/process.js';
+import { startMcpServer } from './mcp/server.js';
 
 const logger = createLogger();
 const program = new Command();
@@ -37,6 +38,8 @@ interface RuntimeCliConfig {
   service: {
     name: string;
     log_tail_lines: number;
+    log_rotate_max_bytes: number;
+    log_rotate_keep_files: number;
   };
   storage: {
     dir: string;
@@ -73,10 +76,11 @@ const serveCommand = program
   .option('--json', 'print runtime management commands as JSON', false)
   .option('--lines <number>', 'number of lines for `serve logs`')
   .option('--follow', 'follow appended log output for `serve logs`', false)
+  .option('--rotate', 'rotate managed logs before printing `serve logs`', false)
   .option('--force', 'use SIGKILL if SIGTERM does not stop the process in time', false)
   .option('--wait-ms <number>', 'grace period for `serve stop`', '5000')
   .option('--all', 'show all runs for `serve ps`', false)
-  .action(async (operation: string | undefined, options: { config?: string; detach: boolean; skipDoctor: boolean; json: boolean; lines?: string; follow: boolean; force: boolean; waitMs: string; all: boolean }) => {
+  .action(async (operation: string | undefined, options: { config?: string; detach: boolean; skipDoctor: boolean; json: boolean; lines?: string; follow: boolean; rotate: boolean; force: boolean; waitMs: string; all: boolean }) => {
     if (operation && operation !== 'start') {
       if (operation === 'status') {
         const { config } = await loadRuntimeConfig({ cwd: process.cwd(), configPath: options.config });
@@ -137,6 +141,10 @@ const serveCommand = program
         const { config } = await loadRuntimeConfig({ cwd: process.cwd(), configPath: options.config });
         const runtimePaths = getRuntimePaths(config);
         const lines = Number(options.lines ?? config.service.log_tail_lines);
+        if (options.rotate) {
+          const rotated = await rotateManagedLogs(config, { force: true });
+          process.stdout.write(rotated.length > 0 ? `Rotated logs:\n${rotated.map((file) => `- ${file}`).join('\n')}\n` : 'No logs rotated.\n');
+        }
         if (options.follow) {
           await followFile(runtimePaths.logPath, lines);
           return;
@@ -345,11 +353,16 @@ program
   .description('Tail bridge logs')
   .option('--config <path>', 'config path override')
   .option('--lines <number>', 'number of lines to print')
+  .option('--rotate', 'rotate managed logs before printing', false)
   .option('--follow', 'follow appended log output', false)
-  .action(async (options: { config?: string; lines?: string; follow: boolean }) => {
+  .action(async (options: { config?: string; lines?: string; rotate: boolean; follow: boolean }) => {
     const { config } = await loadRuntimeConfig({ cwd: process.cwd(), configPath: options.config });
     const runtimePaths = getRuntimePaths(config);
     const lines = Number(options.lines ?? config.service.log_tail_lines);
+    if (options.rotate) {
+      const rotated = await rotateManagedLogs(config, { force: true });
+      process.stdout.write(rotated.length > 0 ? `Rotated logs:\n${rotated.map((file) => `- ${file}`).join('\n')}\n` : 'No logs rotated.\n');
+    }
     if (options.follow) {
       await followFile(runtimePaths.logPath, lines);
       return;
@@ -375,10 +388,19 @@ program
   .description('Validate runtime prerequisites and config quality')
   .option('--config <path>', 'config path override')
   .option('--remote', 'run remote Feishu availability checks', false)
+  .option('--fix', 'apply safe local fixes such as creating storage directories and rotating oversized logs', false)
   .option('--json', 'print findings as JSON', false)
-  .action(async (options: { config?: string; json: boolean; remote: boolean }) => {
+  .action(async (options: { config?: string; json: boolean; remote: boolean; fix: boolean }) => {
     try {
       const { config } = await loadBridgeConfig({ cwd: process.cwd(), configPath: options.config });
+      if (options.fix) {
+        const fixes = await applySafeDoctorFixes(config);
+        if (fixes.length > 0 && !options.json) {
+          for (const fix of fixes) {
+            console.log(`[fix] ${fix}`);
+          }
+        }
+      }
       const findings = await runDoctor(config);
       if (options.remote) {
         findings.push(...(await runRemoteDoctor(config)));
@@ -427,6 +449,33 @@ program
       console.log(`Bound ${alias} -> ${path.resolve(root)} in ${configPath}`);
     },
   );
+
+program
+  .command('upgrade')
+  .description('Check or install the latest npm release of codex-feishu')
+  .option('--check', 'only print the latest available version', false)
+  .option('--yes', 'install the latest release immediately', false)
+  .action(async (options: { check: boolean; yes: boolean }) => {
+    const latest = await fetchLatestPublishedVersion();
+    console.log(`current: ${packageJson.version}`);
+    console.log(`latest: ${latest}`);
+    if (options.check || !options.yes) {
+      if (!options.check) {
+        console.log('Re-run with `codex-feishu upgrade --yes` to install the latest npm release globally.');
+      }
+      return;
+    }
+    await installLatestPublishedVersion();
+    console.log(`Upgraded codex-feishu to ${latest}`);
+  });
+
+program
+  .command('mcp')
+  .description('Run a stdio MCP server for external tools such as OpenClaw')
+  .option('--config <path>', 'config path override')
+  .action(async (options: { config?: string }) => {
+    await startMcpServer({ cwd: process.cwd(), configPath: options.config });
+  });
 
 const sessionsCommand = program.command('sessions').description('Inspect persisted session state');
 
@@ -821,6 +870,15 @@ function getRuntimePaths(config: RuntimeCliConfig): {
   };
 }
 
+function getManagedLogPaths(config: RuntimeCliConfig): string[] {
+  const runtimePaths = getRuntimePaths(config);
+  return [
+    runtimePaths.logPath,
+    path.join(config.storage.dir, 'audit.jsonl'),
+    path.join(config.storage.dir, 'admin-audit.jsonl'),
+  ];
+}
+
 async function inspectRuntimeStatus(config: RuntimeCliConfig): Promise<{
   running: boolean;
   pid?: number;
@@ -888,6 +946,43 @@ async function tailFile(filePath: string, lines: number): Promise<string> {
   } catch {
     return '';
   }
+}
+
+async function rotateManagedLogs(
+  config: RuntimeCliConfig,
+  options: {
+    force?: boolean;
+  } = {},
+): Promise<string[]> {
+  await fs.mkdir(config.storage.dir, { recursive: true });
+  const rotated: string[] = [];
+  for (const filePath of getManagedLogPaths(config)) {
+    const rotatedFile = await rotateFileIfNeeded(filePath, config.service.log_rotate_max_bytes, config.service.log_rotate_keep_files, options.force === true);
+    if (rotatedFile) {
+      rotated.push(rotatedFile);
+    }
+  }
+  return rotated;
+}
+
+async function rotateFileIfNeeded(filePath: string, maxBytes: number, keepFiles: number, force: boolean): Promise<string | null> {
+  const size = await getFileSize(filePath);
+  if (size === 0 || (!force && size < maxBytes)) {
+    return null;
+  }
+  for (let index = keepFiles; index >= 1; index -= 1) {
+    const current = `${filePath}.${index}`;
+    const next = `${filePath}.${index + 1}`;
+    if (index === keepFiles && (await fileExists(current))) {
+      await fs.rm(current, { force: true });
+      continue;
+    }
+    if (await fileExists(current)) {
+      await fs.rename(current, next);
+    }
+  }
+  await fs.rename(filePath, `${filePath}.1`);
+  return `${filePath}.1`;
 }
 
 async function followFile(filePath: string, lines: number): Promise<void> {
@@ -990,6 +1085,7 @@ async function detachServeProcess(input: {
   pidPath: string;
 }> {
   await fs.mkdir(input.config.storage.dir, { recursive: true });
+  await rotateManagedLogs(input.config);
   const logPath = path.join(input.config.storage.dir, `${input.config.service.name}.log`);
   const pidPath = path.join(input.config.storage.dir, `${input.config.service.name}.pid`);
   const stdoutFd = openSync(logPath, 'a');
@@ -1025,6 +1121,56 @@ async function detachServeProcess(input: {
     closeSync(stdoutFd);
     closeSync(stderrFd);
   }
+}
+
+async function applySafeDoctorFixes(config: BridgeConfig): Promise<string[]> {
+  const fixes: string[] = [];
+  await fs.mkdir(config.storage.dir, { recursive: true });
+  fixes.push(`ensured storage dir: ${config.storage.dir}`);
+
+  const runtimeStatus = await inspectRuntimeStatus(config);
+  if (!runtimeStatus.running && (await fileExists(runtimeStatus.pidPath))) {
+    await fs.rm(runtimeStatus.pidPath, { force: true });
+    fixes.push(`removed stale pid file: ${runtimeStatus.pidPath}`);
+  }
+
+  const rotated = await rotateManagedLogs(config);
+  fixes.push(...rotated.map((file) => `rotated log: ${file}`));
+  return fixes;
+}
+
+async function fetchLatestPublishedVersion(): Promise<string> {
+  const stdout = await runChildForStdout('npm', ['view', 'codex-feishu', 'version']);
+  return stdout.trim();
+}
+
+async function installLatestPublishedVersion(): Promise<void> {
+  await runChildForStdout('npm', ['install', '-g', 'codex-feishu@latest']);
+}
+
+async function runChildForStdout(command: string, args: string[]): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(command, args, {
+      env: { ...process.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+        return;
+      }
+      reject(new Error(stderr.trim() || `${command} ${args.join(' ')} exited with code ${code ?? 'unknown'}`));
+    });
+  });
 }
 
 program.parseAsync(process.argv).catch(async (error: unknown) => {

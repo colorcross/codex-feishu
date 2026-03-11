@@ -10,6 +10,7 @@ import type { MetricsRegistry } from '../observability/metrics.js';
 export interface FeishuMessageResponse {
   message_id?: string;
   open_message_id?: string;
+  root_id?: string;
 }
 
 export interface FeishuApiEnvelope<T = unknown> {
@@ -90,6 +91,18 @@ export class FeishuClient {
     return this.sendMessage('chat_id', chatId, 'post', JSON.stringify(post), options);
   }
 
+  public async updateText(messageId: string, text: string): Promise<FeishuMessageResponse> {
+    return this.updateMessage(messageId, 'text', JSON.stringify({ text }));
+  }
+
+  public async updateCard(messageId: string, card: Record<string, unknown>): Promise<FeishuMessageResponse> {
+    return this.updateMessage(messageId, 'interactive', JSON.stringify(card));
+  }
+
+  public async updatePost(messageId: string, post: FeishuPostMessage): Promise<FeishuMessageResponse> {
+    return this.updateMessage(messageId, 'post', JSON.stringify(post));
+  }
+
   public async sendTextToReceiveId(
     receiveIdType: FeishuReceiveIdType,
     receiveId: string,
@@ -100,7 +113,7 @@ export class FeishuClient {
   }
 
   public async requestApi<T = unknown>(payload: {
-    method: 'GET' | 'POST';
+    method: 'GET' | 'POST' | 'PATCH';
     url: string;
     params?: Record<string, string | number | boolean | undefined>;
     data?: Record<string, unknown>;
@@ -181,6 +194,40 @@ export class FeishuClient {
       ensureSuccessfulResponse(response);
       this.metrics?.recordOutboundMessage(msgType, 'success');
       this.logger.debug({ receiveIdType, receiveId, msgType, replyToMessageId: options.replyToMessageId }, 'Sent Feishu message');
+      return response.data ?? {};
+    } catch (error) {
+      this.metrics?.recordOutboundMessage(msgType, 'failure');
+      throw error;
+    }
+  }
+
+  private async updateMessage(
+    messageId: string,
+    msgType: 'text' | 'interactive' | 'post',
+    content: string,
+  ): Promise<FeishuMessageResponse> {
+    if (this.config.dry_run) {
+      const response = {
+        message_id: messageId,
+        open_message_id: messageId,
+      };
+      this.metrics?.recordOutboundMessage(msgType, 'success');
+      this.logger.info({ messageId, msgType, content }, 'Skipped Feishu outbound update because dry_run is enabled');
+      return response;
+    }
+
+    try {
+      const response = await this.requestApi<FeishuMessageResponse>({
+        method: 'PATCH',
+        url: `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`,
+        data: {
+          content,
+          msg_type: msgType,
+        },
+      });
+      ensureSuccessfulResponse(response);
+      this.metrics?.recordOutboundMessage(msgType, 'success');
+      this.logger.debug({ messageId, msgType }, 'Updated Feishu message');
       return response.data ?? {};
     } catch (error) {
       this.metrics?.recordOutboundMessage(msgType, 'failure');

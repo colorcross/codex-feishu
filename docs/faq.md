@@ -99,6 +99,12 @@ codex-feishu audit tail --limit 20
 - `post`：富文本回复，自动保留标题、列表、链接，适合大多数长连接和 webhook 回复场景
 - `card`：卡片展示；long-connection 也能显示卡片，但卡片按钮回调仍需要 `transport = "webhook"`
 
+补充：
+
+- 收到消息后会先回一条状态提示，明确显示 `消息接收` 和 `处理状态`
+- 同一轮运行的进度和完成结果会优先回写到同一条飞书回复或卡片
+- 变更类自然语言命令默认要求先回复 `确认`
+
 如果没有明确的卡片交互需求，推荐优先用：
 
 ```toml
@@ -136,9 +142,13 @@ allowed_project_roots = ["/"]
 - `codex-feishu status`：查看运行状态、pid、日志路径
 - `codex-feishu logs --lines 100`：查看最近日志
 - `codex-feishu logs --follow`：实时跟随日志输出
+- `codex-feishu logs --rotate`：轮转 runtime / audit 日志
 - `codex-feishu ps`：查看当前任务列表
 - `codex-feishu stop --force`：停止 bridge
 - `codex-feishu restart`：重启 bridge
+- `codex-feishu doctor --fix`：创建缺失状态目录、清理 stale pid、轮转超大日志
+- `codex-feishu upgrade --check`：查看 npm 是否有更新
+- `codex-feishu mcp`：暴露 stdio MCP 服务给外部应用
 
 如果你是在飞书里联调，还会看到一条即时状态提示，明确显示消息是否已接收以及当前处理状态。
 
@@ -165,7 +175,18 @@ admin_chat_ids = ["oc_admin_chat_1"]
 /admin chat add <chat_id>
 /admin project add <alias> <root>
 /admin project set <alias> <field> <value>
+/admin config history
+/admin config rollback <id|latest>
 /admin service restart
+```
+
+如果只想把单个项目授权给专门的管理员 chat，可在项目里单独加：
+
+```toml
+[projects.repo-a]
+admin_chat_ids = ["oc_repo_admin_1"]
+chat_rate_limit_window_seconds = 60
+chat_rate_limit_max_runs = 20
 ```
 
 这组命令会直接修改当前实例对应的配置文件；如果改动需要重启生效，再执行 `/admin service restart`。

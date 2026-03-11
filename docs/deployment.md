@@ -36,9 +36,13 @@ codex-feishu start
 - `codex-feishu status`：查看服务状态、pid、日志路径
 - `codex-feishu logs --lines 100`：查看最近日志
 - `codex-feishu logs --follow`：实时跟随日志
+- `codex-feishu logs --rotate`：轮转 runtime / audit 日志
 - `codex-feishu ps`：查看当前任务状态
 - `codex-feishu stop --force`：停止 bridge
 - `codex-feishu restart`：重启 bridge
+- `codex-feishu doctor --fix`：创建缺失状态目录、清理 stale pid、轮转超大日志
+- `codex-feishu upgrade --check`：检查 npm 最新版本
+- `codex-feishu mcp`：暴露 stdio MCP 服务给 OpenClaw 等外部工具
 
 优点：
 
@@ -84,6 +88,8 @@ npm run demo:down
 
 - `reply_mode = "card"` 在 long-connection 模式下也能展示卡片，但按钮回调仍需要 webhook
 - 飞书用户发消息后，会先收到一条状态提示，确认消息已接收以及当前是 `running` 还是 `queued`
+- 同一轮运行的排队、进度和完成结果会优先回写到同一条回复或卡片
+- 变更类自然语言命令默认会要求回复 `确认` 再执行
 
 
 ## 用户级服务安装
@@ -231,6 +237,7 @@ codex-feishu webhook smoke --base-url http://127.0.0.1:3333
 1. `codex-feishu doctor`
    或 `codex-feishu doctor --json`
    或 `codex-feishu doctor --remote`
+   或 `codex-feishu doctor --fix`
 2. `codex-feishu start`
 3. 观察日志确认桥接已开始监听或已建立长连接
 

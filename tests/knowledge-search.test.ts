@@ -23,6 +23,9 @@ describe('knowledge search', () => {
       mention_required: false,
       knowledge_paths: ['docs'],
       wiki_space_ids: [],
+      admin_chat_ids: [],
+      chat_rate_limit_window_seconds: 60,
+      chat_rate_limit_max_runs: 20,
     };
 
     const roots = await resolveKnowledgeRoots(project);

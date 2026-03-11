@@ -163,9 +163,90 @@ export function buildHelpText(): string {
     '',
     '也支持高置信度自然语言触发，例如：',
     '查看状态 / 查看详细状态 / 项目列表 / 新会话 / 取消当前任务 / 切换到项目 repo-a / 接管最新会话 / 重启服务',
+    '涉及切换、取消、重启、配置修改等变更操作时，会要求先回复“确认”再执行。',
     '',
     '直接发送文本会进入当前项目的 Codex 会话。',
   ].join('\n');
+}
+
+export function describeBridgeCommand(command: BridgeCommand): string {
+  switch (command.kind) {
+    case 'help':
+      return '查看帮助';
+    case 'status':
+      return command.detail ? '查看详细状态' : '查看当前状态';
+    case 'projects':
+      return '查看项目列表';
+    case 'new':
+      return '新建会话';
+    case 'cancel':
+      return '取消当前运行';
+    case 'kb':
+      return command.action === 'search' ? `搜索知识库: ${command.query ?? ''}`.trim() : '查看知识库状态';
+    case 'memory':
+      return `记忆操作: ${command.action}`;
+    case 'wiki':
+      return `知识库操作: ${command.action}`;
+    case 'project':
+      return command.alias ? `切换到项目 ${command.alias}` : '查看当前项目';
+    case 'session':
+      if (command.action === 'adopt') {
+        return `接管会话 ${command.target ?? 'latest'}`;
+      }
+      return `会话操作: ${command.action}${'threadId' in command && command.threadId ? ` ${command.threadId}` : ''}`;
+    case 'admin':
+      if (command.resource === 'project') {
+        return `管理员项目操作: ${command.action}${command.alias ? ` ${command.alias}` : ''}`;
+      }
+      if (command.resource === 'config') {
+        return `配置操作: ${command.action}${command.value ? ` ${command.value}` : ''}`;
+      }
+      return `管理员操作: ${command.resource} ${command.action}${'value' in command && command.value ? ` ${command.value}` : ''}`;
+    case 'prompt':
+      return truncateForDescription(command.prompt);
+  }
+}
+
+export function requiresCommandConfirmation(command: BridgeCommand): boolean {
+  switch (command.kind) {
+    case 'cancel':
+    case 'new':
+      return true;
+    case 'project':
+      return Boolean(command.alias);
+    case 'session':
+      return command.action === 'use' || command.action === 'new' || command.action === 'drop' || command.action === 'adopt';
+    case 'admin':
+      if (command.resource === 'service') {
+        return command.action === 'restart';
+      }
+      if (command.resource === 'config') {
+        return command.action === 'rollback';
+      }
+      if (command.resource === 'project') {
+        return command.action === 'add' || command.action === 'remove' || command.action === 'set';
+      }
+      return command.action === 'add' || command.action === 'remove';
+    default:
+      return false;
+  }
+}
+
+export function parseConfirmationIntent(input: string): 'confirm' | 'cancel' | null {
+  const normalized = input
+    .trim()
+    .replace(/[。！？!?；;]+$/u, '')
+    .replace(/\s+/g, '');
+  if (!normalized) {
+    return null;
+  }
+  if (/^(确认|确认执行|继续执行|继续|是|好的|好)$/.test(normalized)) {
+    return 'confirm';
+  }
+  if (/^(取消|不用了|算了|否|不执行|停止确认)$/.test(normalized)) {
+    return 'cancel';
+  }
+  return null;
 }
 
 function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
@@ -282,6 +363,10 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
   }
 
   return null;
+}
+
+function truncateForDescription(input: string, limit: number = 36): string {
+  return input.length > limit ? `${input.slice(0, limit)}...` : input;
 }
 
 function parseAdminCommand(argument: string): BridgeCommand {

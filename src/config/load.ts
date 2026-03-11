@@ -18,6 +18,8 @@ export interface LoadedRuntimeConfig {
     service: {
       name: string;
       log_tail_lines: number;
+      log_rotate_max_bytes: number;
+      log_rotate_keep_files: number;
     };
     storage: {
       dir: string;
@@ -61,10 +63,14 @@ const runtimeConfigSchema = z.object({
     .object({
       name: z.string().default('codex-feishu'),
       log_tail_lines: z.number().int().positive().default(100),
+      log_rotate_max_bytes: z.number().int().positive().default(10 * 1024 * 1024),
+      log_rotate_keep_files: z.number().int().positive().default(5),
     })
     .default({
       name: 'codex-feishu',
       log_tail_lines: 100,
+      log_rotate_max_bytes: 10 * 1024 * 1024,
+      log_rotate_keep_files: 5,
     }),
   storage: z
     .object({
@@ -228,6 +234,12 @@ function resolveLayerPaths(raw: Record<string, unknown>, baseDir: string): Recor
       }
       if (typeof projectConfig.instructions_prefix === 'string') {
         projectConfig.instructions_prefix = resolveMaybeRelative(projectConfig.instructions_prefix, baseDir);
+      }
+      if (typeof projectConfig.download_dir === 'string') {
+        projectConfig.download_dir = resolveMaybeRelative(projectConfig.download_dir, baseDir);
+      }
+      if (typeof projectConfig.temp_dir === 'string') {
+        projectConfig.temp_dir = resolveMaybeRelative(projectConfig.temp_dir, baseDir);
       }
       if (Array.isArray(projectConfig.knowledge_paths)) {
         projectConfig.knowledge_paths = projectConfig.knowledge_paths.map((entry) =>

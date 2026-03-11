@@ -65,7 +65,7 @@
               <span class="display-line display-accent">control plane.</span>
             </h1>
             <p class="hero-body">
-              Codex Feishu sends Feishu messages into resumable Codex CLI sessions. Project binding sticks by <code>chat_id</code>, local sessions can be adopted, shared repos are serialized safely, queued runtime state stays visible inside Feishu, and replies support structured rich text, cards, and natural-language command triggers.
+              Codex Feishu sends Feishu messages into resumable Codex CLI sessions. Project binding sticks by <code>chat_id</code>, local sessions can be adopted, shared repos are serialized safely, queued runtime state stays visible inside Feishu, and replies support structured rich text, cards, in-place status updates, confirmation-gated natural-language commands, and MCP access for external tools.
             </p>
             <div class="hero-actions">
               <a class="button button-primary" href="https://www.npmjs.com/package/codex-feishu">Install from npm</a>
@@ -219,8 +219,18 @@ Blocking status: running</code></pre>
             </article>
             <article class="capability-card">
               <span class="micro-label">Reply Surface</span>
-              <h3>Natural-language commands, rich text, and cards share one reply path</h3>
-              <p>Users can send high-confidence commands such as <code>查看状态</code> or <code>切换到项目 repo-a</code> and still receive formatted post or card replies in the same chat.</p>
+              <h3>The same reply carries acceptance, progress, and final results</h3>
+              <p>Users can send high-confidence commands such as <code>查看状态</code> or <code>切换到项目 repo-a</code>; mutating requests require confirmation, and progress prefers updating the original reply or card.</p>
+            </article>
+            <article class="capability-card">
+              <span class="micro-label">Isolation & Access</span>
+              <h3>Project admins, chat throttling, and download paths are configurable</h3>
+              <p>Each project can define its own <code>admin_chat_ids</code>, per-chat rate limits, and attachment / temp directories to reduce cross-project interference.</p>
+            </article>
+            <article class="capability-card">
+              <span class="micro-label">MCP Surface</span>
+              <h3>Expose the bridge to OpenClaw and other MCP clients</h3>
+              <p>Run <code>codex-feishu mcp</code> to expose projects, run state, config history, and service controls to external tools.</p>
             </article>
           </div>
         </section>
@@ -240,8 +250,10 @@ Blocking status: running</code></pre>
 codex-feishu init --mode global
 codex-feishu doctor
 codex-feishu doctor --remote
+codex-feishu doctor --fix
 codex-feishu start
-codex-feishu logs --follow</code></pre>
+codex-feishu logs --follow
+codex-feishu mcp</code></pre>
             </article>
             <article class="quick-card code-card">
               <div class="panel-head">

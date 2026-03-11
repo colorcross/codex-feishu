@@ -183,10 +183,15 @@ allowed_group_ids = ["oc_group_1", "oc_group_2"]
 - `codex-feishu status`：查看服务是否在运行、pid、日志路径和 active runs
 - `codex-feishu logs --lines 100`：查看最近日志
 - `codex-feishu logs --follow`：实时观察日志追加内容
+- `codex-feishu logs --rotate`：轮转 runtime / audit 日志
 - `codex-feishu ps`：查看当前任务列表和运行态
 - `codex-feishu stop --force`：停止服务，必要时强制终止
 - `codex-feishu restart`：重启后台服务
 - `codex-feishu audit tail --limit 20`：查看最近审计事件
+- `codex-feishu doctor --fix`：创建缺失状态目录、清理 stale pid、轮转超大日志
+- `codex-feishu upgrade --check`：检查 npm 是否有新版本
+- `codex-feishu upgrade --yes`：从 npm 全局升级到最新版本
+- `codex-feishu mcp`：启动 stdio MCP 服务，供 OpenClaw 等外部工具接入
 
 常用飞书端运维命令：
 
@@ -218,8 +223,10 @@ reply_mode = "text"
 补充：
 
 - 用户发送消息后，桥接器会先回一条状态提示，明确显示 `消息接收` 和 `处理状态`
+- 同一轮运行的排队、进度和完成结果会优先回写到同一条飞书回复或卡片
 - 用户可见回复默认隐藏内部 `运行:` 标识
 - 飞书里也支持高置信度自然语言命令，例如 `查看状态`、`切换到项目 repo-a`、`接管最新会话`
+- 对切项目、接管会话、取消运行、重启服务、修改配置这类自然语言命令，默认要求先回复 `确认`
 
 ## 管理员入口
 
@@ -244,10 +251,23 @@ admin_chat_ids = ["oc_admin_chat_1"]
 /admin project add <alias> <root>
 /admin project remove <alias>
 /admin project set <alias> <field> <value>
+/admin config history
+/admin config rollback <id|latest>
 /admin service restart
 ```
 
 这组命令会直接更新当前实例对应的可写配置文件；`/admin service restart` 会保存后重启服务。
+
+如果你要给单个项目单独授权管理员或限流，可以加：
+
+```toml
+[projects.repo-a]
+admin_chat_ids = ["oc_repo_admin_1"]
+chat_rate_limit_window_seconds = 60
+chat_rate_limit_max_runs = 20
+download_dir = "/srv/codex-feishu/downloads/repo-a"
+temp_dir = "/srv/codex-feishu/tmp/repo-a"
+```
 
 ## 常见联调问题
 

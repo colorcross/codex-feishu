@@ -30,10 +30,11 @@
   - 常用命令
   - `/status detail` / `/admin runs` / 配置回滚
   - `reply_mode` / 富文本 / 卡片
-  - 自然语言命令触发
+  - 自然语言命令触发与确认机制
   - 管理员动态接入与 `/admin` 命令
   - `/session adopt` 续接本地 Codex 会话
   - `queued` / 仓库占用提示
+  - 同一条消息回写状态
 
 ### 深入理解
 
@@ -59,9 +60,11 @@
 - [部署说明](deployment.md)
   - 本机单用户模式
   - 团队共享模式
-  - `start|status|logs --follow|ps|stop|restart`
+  - `start|status|logs --follow|logs --rotate|ps|stop|restart`
+  - `doctor --fix` / `upgrade`
   - systemd / launchd
   - Webhook / 反向代理 / 探针
+  - MCP 接入
 - [安全与运维](security.md)
   - 凭证处理
   - 日志脱敏

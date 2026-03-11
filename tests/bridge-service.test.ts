@@ -10,7 +10,7 @@ vi.mock('../src/codex/runner.js', () => ({
   summarizeCodexEvent: vi.fn(() => null),
 }));
 
-import type { BridgeConfig } from '../src/config/schema.js';
+import type { BridgeConfig, ProjectConfig } from '../src/config/schema.js';
 import { CodexFeishuService } from '../src/bridge/service.js';
 import { SessionStore, buildConversationKey } from '../src/state/session-store.js';
 import { AuditLog } from '../src/state/audit-log.js';
@@ -64,7 +64,7 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(message);
 
     expect(runCodexTurnMock).toHaveBeenCalledTimes(1);
-    expect(setup.sendText).toHaveBeenCalledTimes(2);
+    expect(setup.sendText).toHaveBeenCalledTimes(1);
     expect((await setup.idempotencyStore.tail(10))[0]?.duplicate_count).toBe(1);
   });
 
@@ -138,6 +138,38 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('post 模式测试', { message_id: 'm-post-mode' }));
     expect(setup.sendPost).toHaveBeenCalled();
     expect(setup.sendText).not.toHaveBeenCalled();
+  });
+
+  it('updates the original Feishu reply message instead of sending a second final text', async () => {
+    const setup = await createService();
+    runCodexTurnMock.mockResolvedValue({
+      sessionId: 'thread-1',
+      finalMessage: '最终结果',
+      stderr: '',
+      exitCode: 0,
+      capabilities: { version: 'codex-cli 0.98.0', exec: {}, resume: {} },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-update-reply' }));
+
+    expect(setup.sendText).toHaveBeenCalledTimes(1);
+    expect(setup.updateText).toHaveBeenCalled();
+    expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('最终结果');
+  });
+
+  it('requires confirmation before executing a natural language admin mutation', async () => {
+    const setup = await createService({
+      security: {
+        admin_chat_ids: ['chat'],
+      },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('重启服务', { message_id: 'm-confirm-request' }));
+    expect(setup.restart).not.toHaveBeenCalled();
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('请在 90 秒内回复“确认”继续');
+
+    await setup.service.handleIncomingMessage(buildMessage('确认', { message_id: 'm-confirm-apply' }));
+    expect(setup.restart).toHaveBeenCalledTimes(1);
   });
 
   it('uses Feishu cards for generic replies when reply_mode=card', async () => {
@@ -1374,7 +1406,7 @@ interface TestConfigOverrides extends Partial<Omit<BridgeConfig, 'service' | 'co
   storage?: Partial<BridgeConfig['storage']>;
   security?: Partial<BridgeConfig['security']>;
   feishu?: Partial<BridgeConfig['feishu']>;
-  projects?: BridgeConfig['projects'];
+  projects?: Record<string, Partial<ProjectConfig> & Pick<ProjectConfig, 'root'>>;
 }
 
 async function createService(overrides: TestConfigOverrides = {}) {
@@ -1391,9 +1423,12 @@ async function createService(overrides: TestConfigOverrides = {}) {
   const sendText = vi.fn().mockResolvedValue({ message_id: 'm-1', open_message_id: 'm-1' });
   const sendCard = vi.fn().mockResolvedValue({ message_id: 'm-card', open_message_id: 'm-card' });
   const sendPost = vi.fn().mockResolvedValue({ message_id: 'm-post', open_message_id: 'm-post' });
+  const updateText = vi.fn().mockResolvedValue({ message_id: 'm-1', open_message_id: 'm-1' });
+  const updateCard = vi.fn().mockResolvedValue({ message_id: 'm-card', open_message_id: 'm-card' });
+  const updatePost = vi.fn().mockResolvedValue({ message_id: 'm-post', open_message_id: 'm-post' });
   const createSdkClient = vi.fn(() => ({}));
   const restart = vi.fn().mockResolvedValue(undefined);
-  const feishuClient = { sendText, sendCard, sendPost, createSdkClient } as any;
+  const feishuClient = { sendText, sendCard, sendPost, updateText, updateCard, updatePost, createSdkClient } as any;
   const service = new CodexFeishuService(
     config,
     feishuClient,
@@ -1415,6 +1450,9 @@ async function createService(overrides: TestConfigOverrides = {}) {
     sendText,
     sendCard,
     sendPost,
+    updateText,
+    updateCard,
+    updatePost,
     feishuClient,
     sessionStore,
     idempotencyStore,
@@ -1431,12 +1469,16 @@ function buildConfig(dir: string, overrides: TestConfigOverrides): BridgeConfig 
       default_project: 'default',
       project_switch_auto_adopt_latest: false,
       reply_mode: 'text',
+      natural_language_command_confirmation: true,
+      natural_language_confirmation_ttl_seconds: 90,
       emit_progress_updates: false,
       progress_update_interval_ms: 4000,
       metrics_host: '127.0.0.1',
       idempotency_ttl_seconds: 86400,
       session_history_limit: 20,
       log_tail_lines: 100,
+      log_rotate_max_bytes: 10 * 1024 * 1024,
+      log_rotate_keep_files: 5,
       reply_quote_user_message: false,
       reply_quote_max_chars: 120,
       download_message_resources: false,
@@ -1489,6 +1531,9 @@ function buildConfig(dir: string, overrides: TestConfigOverrides): BridgeConfig 
         mention_required: false,
         knowledge_paths: [],
         wiki_space_ids: [],
+        admin_chat_ids: [],
+        chat_rate_limit_window_seconds: 60,
+        chat_rate_limit_max_runs: 20,
       },
     },
   };
@@ -1501,8 +1546,26 @@ function buildConfig(dir: string, overrides: TestConfigOverrides): BridgeConfig 
     storage: { ...base.storage, ...overrides.storage },
     security: { ...base.security, ...overrides.security },
     feishu: { ...base.feishu, ...overrides.feishu },
-    projects: overrides.projects ?? base.projects,
+    projects: normalizeProjects(overrides.projects ?? base.projects),
   };
+}
+
+function normalizeProjects(projects: Record<string, Partial<ProjectConfig> & Pick<ProjectConfig, 'root'>>): BridgeConfig['projects'] {
+  return Object.fromEntries(
+    Object.entries(projects).map(([alias, project]) => [
+      alias,
+      {
+        session_scope: 'chat',
+        mention_required: false,
+        knowledge_paths: [],
+        wiki_space_ids: [],
+        admin_chat_ids: [],
+        chat_rate_limit_window_seconds: 60,
+        chat_rate_limit_max_runs: 20,
+        ...project,
+      },
+    ]),
+  );
 }
 
 function buildMessage(text: string, overrides: Partial<Parameters<CodexFeishuService['handleIncomingMessage']>[0]> = {}) {

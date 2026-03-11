@@ -146,6 +146,28 @@ describe('FeishuClient', () => {
     );
   });
 
+  it('updates an existing message through the Feishu message update API', async () => {
+    requestMock.mockResolvedValueOnce({ code: 0, data: { message_id: 'message-1', open_message_id: 'om-1' } });
+
+    const client = new FeishuClient(config, logger);
+
+    await expect(client.updateText('message-1', 'updated body')).resolves.toEqual({
+      message_id: 'message-1',
+      open_message_id: 'om-1',
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'PATCH',
+        url: '/open-apis/im/v1/messages/message-1',
+        data: expect.objectContaining({
+          msg_type: 'text',
+          content: JSON.stringify({ text: 'updated body' }),
+        }),
+      }),
+    );
+  });
+
   it('passes a proxy agent to WSClient when proxy env is configured', () => {
     process.env.HTTPS_PROXY = 'http://127.0.0.1:1087';
     delete process.env.HTTP_PROXY;

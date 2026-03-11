@@ -15,12 +15,16 @@ export function buildInitialConfig(mode: InitMode, cwd: string): string {
 default_project = "default"
 project_switch_auto_adopt_latest = false
 reply_mode = "text"
+natural_language_command_confirmation = true
+natural_language_confirmation_ttl_seconds = 90
 emit_progress_updates = false
 progress_update_interval_ms = 4000
 metrics_host = "127.0.0.1"
 idempotency_ttl_seconds = 86400
 session_history_limit = 20
 log_tail_lines = 100
+log_rotate_max_bytes = 10485760
+log_rotate_keep_files = 5
 reply_quote_user_message = true
 reply_quote_max_chars = 120
 download_message_resources = false
@@ -78,8 +82,13 @@ allowed_group_ids = []
 root = "${defaultRoot}"
 session_scope = "chat"
 mention_required = true
+admin_chat_ids = []
+chat_rate_limit_window_seconds = 60
+chat_rate_limit_max_runs = 20
 # profile = "default"
 # sandbox = "workspace-write"
 # description = "Main repo"
+# download_dir = "./.codex-feishu/downloads"
+# temp_dir = "./.codex-feishu/tmp"
 `;
 }

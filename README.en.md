@@ -116,6 +116,8 @@ Common Feishu commands:
 - `/admin chat add <chat_id>`
 - `/admin project add <alias> <root>`
 - `/admin project set <alias> <field> <value>`
+- `/admin config history`
+- `/admin config rollback <id|latest>`
 - `/admin service restart`
 
 Recommended reply modes:
@@ -124,7 +126,9 @@ Recommended reply modes:
 - `reply_mode = "card"` for card display; card callbacks still require `transport = "webhook"`
 - `reply_mode = "text"` for the simplest plain-text path
 - inbound messages now receive an immediate acknowledgment with `message accepted` and `processing status`
+- progress and final status prefer updating the same Feishu reply/card instead of sending multiple status messages
 - high-confidence natural language commands are supported, such as `查看状态`, `切换到项目 repo-a`, and `接管最新会话`
+- mutating natural-language commands require an explicit confirmation reply before execution
 
 Common runtime commands:
 
@@ -132,9 +136,14 @@ Common runtime commands:
 - `codex-feishu status`: inspect pid, log path, and active run count
 - `codex-feishu logs --lines 100`: print the latest runtime log lines
 - `codex-feishu logs --follow`: follow appended runtime logs in real time
+- `codex-feishu logs --rotate`: rotate runtime and audit logs manually
 - `codex-feishu ps`: inspect active run states
 - `codex-feishu stop --force`: stop the bridge and force-kill if needed
 - `codex-feishu restart`: restart the background bridge
+- `codex-feishu doctor --fix`: create missing state directories, clear stale pid files, and rotate oversized logs
+- `codex-feishu upgrade --check`: compare the local version with the latest npm release
+- `codex-feishu upgrade --yes`: install the latest npm release globally
+- `codex-feishu mcp`: expose a stdio MCP server for external tools such as OpenClaw
 
 Useful Feishu-side ops commands:
 

@@ -65,7 +65,7 @@
               <span class="display-line display-accent">的控制面。</span>
             </h1>
             <p class="hero-body">
-              Codex Feishu 让飞书消息直接进入可续接的 Codex CLI 会话。项目绑定按 <code>chat_id</code> 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见，回复也支持格式化富文本、卡片和自然语言命令触发。
+              Codex Feishu 让飞书消息直接进入可续接的 Codex CLI 会话。项目绑定按 <code>chat_id</code> 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见；同一条回复会持续回写状态，支持富文本、卡片、确认式自然语言命令，以及通过 MCP 接给其他应用。
             </p>
             <div class="hero-actions">
               <a class="button button-primary" href="https://www.npmjs.com/package/codex-feishu">npm 安装</a>
@@ -219,8 +219,18 @@ codex-feishu status</code></pre>
             </article>
             <article class="capability-card">
               <span class="micro-label">Reply Surface</span>
-              <h3>自然语言命令、富文本和卡片回复走同一出口</h3>
-              <p>飞书里既可以发送 <code>查看状态</code>、<code>切换到项目 repo-a</code> 这类高置信度命令，也能收到格式化 post 或 card 回复。</p>
+              <h3>状态、进度和结果会回写到同一条回复</h3>
+              <p>飞书里既可以发送 <code>查看状态</code>、<code>切换到项目 repo-a</code> 这类高置信度命令，也会在变更类操作前先收到确认提示；运行中的进度和最终结果优先更新原消息或原卡片。</p>
+            </article>
+            <article class="capability-card">
+              <span class="micro-label">Isolation & Access</span>
+              <h3>项目级管理员、限流和下载目录可单独配置</h3>
+              <p>单个项目可独立配置 <code>admin_chat_ids</code>、chat 级运行限流，以及附件/临时目录，减少多项目共用时的串扰。</p>
+            </article>
+            <article class="capability-card">
+              <span class="micro-label">MCP Surface</span>
+              <h3>不只给飞书用，也能通过 MCP 暴露给外部工具</h3>
+              <p>直接运行 <code>codex-feishu mcp</code>，即可把项目列表、运行态、配置历史和服务控制暴露给 OpenClaw 等支持 MCP 的客户端。</p>
             </article>
           </div>
         </section>
@@ -240,8 +250,10 @@ codex-feishu status</code></pre>
 codex-feishu init --mode global
 codex-feishu doctor
 codex-feishu doctor --remote
+codex-feishu doctor --fix
 codex-feishu start
-codex-feishu logs --follow</code></pre>
+codex-feishu logs --follow
+codex-feishu mcp</code></pre>
             </article>
             <article class="quick-card code-card">
               <div class="panel-head">

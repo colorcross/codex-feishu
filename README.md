@@ -200,6 +200,8 @@ codex-feishu status
 - `/admin project add <alias> <root>`
 - `/admin project remove <alias>`
 - `/admin project set <alias> <field> <value>`
+- `/admin config history`
+- `/admin config rollback <id|latest>`
 - `/admin service restart`
 
 ## 一个最小配置示例
@@ -211,8 +213,12 @@ version = 1
 default_project = "default"
 project_switch_auto_adopt_latest = false
 reply_mode = "text" # 也可设为 "post"；"card" 需要 webhook transport
+natural_language_command_confirmation = true
+natural_language_confirmation_ttl_seconds = 90
 reply_quote_user_message = true
 metrics_host = "127.0.0.1"
+log_rotate_max_bytes = 10485760
+log_rotate_keep_files = 5
 memory_enabled = true
 memory_group_enabled = false
 memory_cleanup_interval_seconds = 1800
@@ -247,8 +253,13 @@ allowed_group_ids = []
 root = "/srv/repos/repo-a"
 session_scope = "chat"
 mention_required = true
+admin_chat_ids = ["oc_repo_admin_1"]
+chat_rate_limit_window_seconds = 60
+chat_rate_limit_max_runs = 20
 knowledge_paths = ["docs", "README.md"]
 wiki_space_ids = ["space_xxx"]
+# download_dir = "/srv/codex-feishu/downloads/repo-a"
+# temp_dir = "/srv/codex-feishu/tmp/repo-a"
 ```
 
 如果已配置 `wiki_space_ids`，下面这条会在默认知识空间直接创建一篇 docx 文档：
@@ -287,8 +298,26 @@ admin_chat_ids = ["oc_admin_chat_1"]
 /admin chat add <chat_id>
 /admin project add <alias> <root>
 /admin project set <alias> <field> <value>
+/admin config history
+/admin config rollback <id|latest>
 /admin service restart
 ```
+
+也支持项目级管理员和限流：
+
+```toml
+[projects.repo-a]
+root = "/srv/repos/repo-a"
+admin_chat_ids = ["oc_repo_admin_1"]
+chat_rate_limit_window_seconds = 60
+chat_rate_limit_max_runs = 20
+download_dir = "/srv/codex-feishu/downloads/repo-a"
+temp_dir = "/srv/codex-feishu/tmp/repo-a"
+```
+
+- `admin_chat_ids`：仅允许这组 chat_id 修改该项目或查看该项目运行
+- `chat_rate_limit_*`：限制单个 chat 在一个时间窗口里可提交的运行次数
+- `download_dir` / `temp_dir`：为附件和临时产物预留项目级目录，减少多项目混用
 
 ## 飞书端交互模型
 
@@ -357,10 +386,12 @@ admin_chat_ids = ["oc_admin_chat_1"]
 - 优先用飞书原生 reply 回复触发消息
 - 如果拿不到 `message_id`，才退回文本前缀引用
 - 收到消息后会先回一条状态提示，明确显示 `消息接收` 和 `处理状态`
+- 同一轮运行的进展和最终结果会优先回写到同一条飞书回复或卡片，而不是连续刷多条状态消息
 - `reply_mode = "post"` 时会发送格式化富文本，自动保留标题、列表和链接
 - `reply_mode = "card"` 时会发送卡片展示；卡片按钮回调仍需要 `transport = "webhook"`
 - 用户可见回复会隐藏内部 `运行:` / `阻塞运行:` 之类的运行 ID 字段
 - 高置信度自然语言也能触发命令，例如 `查看状态`、`切换到项目 repo-a`、`接管最新会话`
+- 对会改动会话、配置或运行状态的自然语言命令，默认要求先回复 `确认`
 
 ## 常用运维命令
 
@@ -368,11 +399,16 @@ admin_chat_ids = ["oc_admin_chat_1"]
 - `codex-feishu status`：查看当前运行状态、pid、日志路径、active runs 数量
 - `codex-feishu logs --lines 100`：查看最近日志
 - `codex-feishu logs --follow`：实时跟随日志输出，适合排查联调问题
+- `codex-feishu logs --rotate`：手动轮转 runtime / audit 日志
 - `codex-feishu ps`：查看当前运行中的任务状态
 - `codex-feishu stop --force`：停止 bridge，必要时强制结束
 - `codex-feishu restart`：后台重启 bridge
 - `codex-feishu audit tail --limit 20`：查看最近审计事件
 - `codex-feishu doctor --remote`：同时检查本地配置和飞书远端联通性
+- `codex-feishu doctor --fix`：创建缺失状态目录、清理 stale pid、轮转超大日志
+- `codex-feishu upgrade --check`：检查 npm 上是否有新版本
+- `codex-feishu upgrade --yes`：直接从 npm 全局升级到最新版本
+- `codex-feishu mcp`：启动 stdio MCP 服务，供 OpenClaw 等外部应用接入
 - `codex-feishu feishu inspect`：检查飞书环境、reply mode 和 webhook/long-connection 配置
 
 常用飞书排障命令：
