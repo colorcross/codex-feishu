@@ -58,7 +58,7 @@ codex-feishu status
 If you want to pin a specific release artifact, install directly from the GitHub Release tarball:
 
 ```bash
-npm install -g https://github.com/colorcross/codex-feishu/releases/download/v0.1.6/codex-feishu-0.1.6.tgz
+npm install -g https://github.com/colorcross/codex-feishu/releases/download/v0.1.7/codex-feishu-0.1.7.tgz
 codex-feishu init --mode global
 ```
 
