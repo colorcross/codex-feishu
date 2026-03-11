@@ -1,170 +1,152 @@
 # Codex Feishu
 
-English | [简体中文](README.md)
+<div align="center">
 
-[![GitHub tag](https://img.shields.io/github/v/tag/colorcross/codex-feishu?sort=semver)](https://github.com/colorcross/codex-feishu/tags)
-[![npm](https://img.shields.io/npm/v/codex-feishu)](https://www.npmjs.com/package/codex-feishu)
-[![License](https://img.shields.io/github/license/colorcross/codex-feishu)](https://github.com/colorcross/codex-feishu/blob/main/LICENSE)
-[![Pages](https://github.com/colorcross/codex-feishu/actions/workflows/pages.yml/badge.svg)](https://github.com/colorcross/codex-feishu/actions/workflows/pages.yml)
+**Route Feishu into Codex's control plane.**
 
-Turn Feishu into Codex's working entry point.
+[![npm version](https://img.shields.io/npm/v/codex-feishu.svg?style=flat-square&color=5bb8b0)](https://www.npmjs.com/package/codex-feishu)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square&color=d4845a)](LICENSE)
+[![Node.js Version](https://img.shields.io/node/v/codex-feishu.svg?style=flat-square)](https://nodejs.org)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
 
-Codex Feishu sends Feishu messages into resumable Codex sessions, keeps projects routable, replies traceable, and runtime state operable. It is not a disposable bot script. It is an engineering bridge meant to stay up.
+[简体中文](README.md) | [Website](https://colorcross.github.io/codex-feishu/en.html) | [Getting Started](docs/getting-started.md) | [Architecture](docs/architecture.md) | [FAQ](docs/faq.md)
 
-## Links
+</div>
 
-- Repository: <https://github.com/colorcross/codex-feishu>
-- Website: <https://colorcross.github.io/codex-feishu/>
-- Chinese landing page: <https://colorcross.github.io/codex-feishu/>
-- English landing page: <https://colorcross.github.io/codex-feishu/en.html>
-- npm: <https://www.npmjs.com/package/codex-feishu>
-- Releases: <https://github.com/colorcross/codex-feishu/releases>
-- Issues: <https://github.com/colorcross/codex-feishu/issues>
-- Discussions: <https://github.com/colorcross/codex-feishu/discussions>
+---
 
-## What it does
+Codex Feishu is a Feishu (Lark) bridge designed for the Codex CLI. It is not just a message forwarding tool, but a **control plane with project awareness, session adoption, and concurrency protection**.
 
-- Supports both `long-connection` and `webhook` Feishu transports
-- Routes one Feishu entry point to multiple project directories
-- Persists project binding by `chat_id`, so each DM or group keeps its own current project until `/project <alias>` changes it
-- Starts new Codex sessions with `codex exec` and resumes existing ones with `codex exec resume`
-- Can adopt local Codex CLI sessions with `/session adopt latest|list|<thread_id>` from `~/.codex/sessions`
-- Can auto-adopt the latest local session on project switch with `service.project_switch_auto_adopt_latest = true`
-- Serializes by `project.root` across chats so two groups cannot mutate the same repo at once; later messages are surfaced as `queued`
-- Supports three reply modes: `text`, `post`, and `card`
-- Supports admin control through `security.admin_chat_ids` and `/admin ...` for access lists and dynamic project updates
-- Supports `/kb status` and `/kb search <query>` for project-local documentation search
-- Carries image/file/audio/rich-text metadata into the Codex prompt for media-aware conversations, auto-extracts excerpts from text-like attachments and `doc/docx/odt/rtf` files after download, and can generate concise image descriptions
-- Supports `/wiki spaces`, `/wiki search <query>`, and `/wiki read <url|token>` for Feishu knowledge-base access
-- Supports `/wiki create <title>` and `/wiki create <space_id> <title>` for creating docx pages in Feishu wiki
-- Supports `/wiki rename <node_token> <title>` for retitling wiki nodes
-- Supports `/wiki copy <node_token> [target_space_id]` and `/wiki move <source_space_id> <node_token> [target_space_id]` for node flow management
-- Supports `/wiki members [space_id]`, `/wiki grant <space_id> <member_type> <member_id> [member|admin]`, and `/wiki revoke <space_id> <member_type> <member_id> [member|admin]` for space membership management
-- Exposes operational commands such as `start`, `status`, `logs`, `ps`, `stop`, `restart`, and `doctor`
-- Keeps audit logs, idempotency state, run state, and Prometheus metrics local and inspectable
+It routes Feishu messages directly into resumable Codex CLI sessions. Project bindings are persisted by `chat_id`, local sessions can be adopted, shared repositories are automatically serialized, and queued runtime states are directly visible within Feishu.
 
-## Quick start
+## 🌟 Core Features
+
+| Feature | Description |
+| :--- | :--- |
+| **Sticky Routing** | Project selection is remembered by `chat_id`. Switch once in a group, and the entire group inherits it; DMs also remember their own current project. |
+| **Session Adoption** | Can resume the bridge's own sessions, or directly adopt native local sessions from `~/.codex/sessions` via `/session adopt`. |
+| **Runtime Guard** | Dual-layer serialization with `queue key` + `project.root`. Threads in the same project won't conflict, and concurrent operations on the same repository across different chats are automatically queued with visible status. |
+| **Wiki & KB Access** | Full read/write access to Feishu Wiki, supporting `/wiki` search, read, create, rename, etc.; supports `/kb search` for local project documents. |
+| **Media Aware** | Images, files, audio, and rich text messages are parsed into structured metadata and injected into Codex prompts. |
+| **MCP Surface** | Not just for Feishu. Run `codex-feishu mcp` to expose core capabilities to external tools like OpenClaw that support MCP. |
+| **Memory System** | Supports project memory and group shared memory, SQLite + FTS5 retrieval, configurable TTL, pin strategies, and background cleanup. |
+| **Observability** | Built-in 16 Prometheus metrics, Alertmanager alert support, and Grafana visualization. All data is locally controllable. |
+
+## 🚀 Quick Start
+
+### 1. Installation
 
 ```bash
 npm install -g codex-feishu
 codex-feishu init --mode global
-export FEISHU_APP_ID='cli_xxx'
-export FEISHU_APP_SECRET='xxx'
-codex-feishu doctor --remote
-codex-feishu start
-codex-feishu status
 ```
 
-If you want to pin a specific release artifact, install directly from the GitHub Release tarball:
+### 2. Configure Environment Variables
+
+Simply set the Feishu app credentials to start quickly (defaults to `long-connection` mode, no public IP required):
 
 ```bash
-npm install -g https://github.com/colorcross/codex-feishu/releases/download/v0.1.9/codex-feishu-0.1.9.tgz
-codex-feishu init --mode global
+export FEISHU_APP_ID=cli_xxx
+export FEISHU_APP_SECRET=***
 ```
 
-Common Feishu commands:
+### 3. Check and Start
 
-- `/help`
-- `/projects`
-- `/project <alias>`
-- `/status`
-- `/new`
-- `/cancel`
-- `/kb status`
-- `/kb search <query>`
-- `/memory status`
-- `/memory stats`
-- `/memory status group`
-- `/memory stats group`
-- `/memory recent`
-- `/memory recent group`
-- `/memory recent --tag <tag>`
-- `/memory recent --source <source>`
-- `/memory recent --created-by <actor_id>`
-- `/memory search <query>`
-- `/memory search --tag <tag> <query>`
-- `/memory search --source <source> <query>`
-- `/memory search --created-by <actor_id> <query>`
-- `/memory search group <query>`
-- `/memory save <text>`
-- `/memory save group <text>`
-- `/memory pin <id>`
-- `/memory unpin <id>`
-- `/memory forget <id>`
-- `/memory forget all-expired`
-- `/memory restore <id>`
-- `/wiki spaces`
-- `/wiki search <query>`
-- `/wiki read <url|token>`
-- `/wiki create <title>`
-- `/wiki rename <node_token> <title>`
-- `/wiki copy <node_token> [target_space_id]`
-- `/wiki move <source_space_id> <node_token> [target_space_id]`
-- `/wiki members [space_id]`
-- `/wiki grant <space_id> <member_type> <member_id> [member|admin]`
-- `/wiki revoke <space_id> <member_type> <member_id> [member|admin]`
-- `/session list`
-- `/session use <thread_id>`
-- `/session new`
-- `/session drop [thread_id]`
-- `/session adopt latest`
-- `/session adopt list`
-- `/session adopt <thread_id>`
-- `/admin status`
-- `/admin admin add <chat_id>`
-- `/admin group add <chat_id>`
-- `/admin chat add <chat_id>`
-- `/admin project add <alias> <root>`
-- `/admin project set <alias> <field> <value>`
-- `/admin config history`
-- `/admin config rollback <id|latest>`
-- `/admin service restart`
+```bash
+# Check environment and connectivity
+codex-feishu doctor --remote
 
-Recommended reply modes:
+# Start the service
+codex-feishu start
 
-- `reply_mode = "post"` for structured rich text with headings, bullets, and links
-- `reply_mode = "card"` for card display; card callbacks still require `transport = "webhook"`
-- `reply_mode = "text"` for the simplest plain-text path
-- inbound messages now receive an immediate acknowledgment with `message accepted` and `processing status`
-- progress and final status prefer updating the same Feishu reply/card instead of sending multiple status messages
-- high-confidence natural language commands are supported, such as `查看状态`, `切换到项目 repo-a`, and `接管最新会话`
-- mutating natural-language commands require an explicit confirmation reply before execution
+# View logs
+codex-feishu logs --follow
+```
 
-Common runtime commands:
+## 💬 Interaction Examples in Feishu
 
-- `codex-feishu start`: start the bridge in the background
-- `codex-feishu status`: inspect pid, log path, and active run count
-- `codex-feishu logs --lines 100`: print the latest runtime log lines
-- `codex-feishu logs --follow`: follow appended runtime logs in real time
-- `codex-feishu logs --rotate`: rotate runtime and audit logs manually
-- `codex-feishu ps`: inspect active run states
-- `codex-feishu stop --force`: stop the bridge and force-kill if needed
-- `codex-feishu restart`: restart the background bridge
-- `codex-feishu doctor --fix`: create missing state directories, clear stale pid files, and rotate oversized logs
-- `codex-feishu upgrade --check`: compare the local version with the latest npm release
-- `codex-feishu upgrade --yes`: install the latest npm release globally
-- `codex-feishu mcp`: expose a stdio MCP server for external tools such as OpenClaw
-  - includes `projects.list`, `project.switch`, `sessions.list`, and `session.adopt`
-  - includes `command.interpret` and `command.execute` so external clients can safely parse and run control intents such as "switch to project repo-a", "adopt latest session", and "show detailed status"
+In Feishu, you can interact with Codex directly using natural language or slash commands:
 
-Useful Feishu-side ops commands:
+```text
+# Project Management
+/projects
+/project repo-a
 
-- `/status detail`: show queue duration and the latest failure for the current project
-- `/admin runs`: inspect active and queued runs across chats
-- `/admin config history`: list recent config snapshots
-- `/admin config rollback <id|latest>`: roll back to a recent config snapshot
+# Session Management
+/session adopt latest
+/session list
 
-## Documentation
+# Knowledge Base Operations
+/wiki search deployment docs
+/kb search architecture design
 
-- [English docs index](docs/README.en.md)
-- [Chinese docs index](docs/README.md)
-- [Memory design](docs/memory-design.md)
-- [Feishu roadmap](docs/feishu-roadmap.md)
-- [Changelog](CHANGELOG.md)
+# Natural Language Commands
+Switch to project repo-a
+Adopt the latest session
+Show detailed status
+```
 
-## Community
+## 🏗️ Architecture Overview
 
-- Usage questions and deployment discussions: GitHub Discussions
-- Reproducible defects and scoped feature work: GitHub Issues
-- Support guide: [SUPPORT.md](SUPPORT.md)
-- Security reports: follow [SECURITY](SECURITY.md)
+```text
+[ Feishu App ] <---> [ Transport (WS/Webhook) ]
+                            |
+                            v
+[ Project Router ] ---> [ Session Manager ] ---> [ Concurrency Queue ]
+                            |                            |
+                            v                            v
+                    [ Memory / Wiki ]             [ Codex Runner ]
+                                                         |
+                                                         v
+                                                [ Local Workspace ]
+```
+
+For detailed architecture design, please refer to the [Architecture Document](docs/architecture.md).
+
+## ⚙️ Minimal Configuration Example
+
+The configuration file is located at `~/.codex-feishu/config.toml` by default:
+
+```toml
+version = 1
+
+[service]
+default_project = "default"
+reply_mode = "post"  # text | post | card
+
+[codex]
+bin = "codex"
+default_sandbox = "workspace-write"
+
+[storage]
+dir = "~/.codex-feishu/state"
+
+[security]
+allowed_project_roots = ["/srv/repos"]
+admin_chat_ids = ["oc_admin_chat_1"]
+
+[feishu]
+app_id = "env:FEISHU_APP_ID"
+app_secret = "env:FEISHU_APP_SECRET"
+transport = "long-connection"
+
+[projects.default]
+root = "/srv/repos/repo-a"
+session_scope = "chat"
+```
+
+## 📚 Documentation Navigation
+
+- [Getting Started](docs/getting-started.md) - Complete guide from zero to one
+- [Architecture](docs/architecture.md) - Deep dive into internal mechanisms
+- [FAQ](docs/faq.md) - Frequently asked questions
+- [Deployment Guide](docs/deployment.md) - Recommendations for production deployment
+- [Contributing Guide](CONTRIBUTING.md) - How to participate in project development
+
+## 🤝 Contributing
+
+We welcome all forms of contributions! Whether it's submitting bugs, proposing new features, or directly submitting Pull Requests. Please read our [Contributing Guide](CONTRIBUTING.md) before contributing.
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).

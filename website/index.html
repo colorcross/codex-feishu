@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Codex Feishu</title>
+    <title>Codex Feishu — 把飞书接到 Codex 的控制面</title>
     <meta
       name="description"
-      content="把飞书接到 Codex 的控制面。Codex Feishu 让项目绑定、会话接管、仓库串行和运维状态在同一条链路里闭环。"
+      content="Codex Feishu 让飞书消息直接进入可续接的 Codex CLI 会话。项目可路由，会话可接管，仓库并发有边界，运行状态在飞书里直接可见。"
     />
-    <meta property="og:title" content="Codex Feishu" />
+    <meta property="og:title" content="Codex Feishu — 把飞书接到 Codex 的控制面" />
     <meta
       property="og:description"
       content="A project-aware Feishu bridge for Codex CLI with sticky chat routing, local session adoption, queued run visibility, and production-grade runtime control."
@@ -23,319 +23,640 @@
       content="把飞书接到 Codex 的控制面。项目可路由，会话可接管，仓库并发有边界，运行状态在飞书里可见。"
     />
     <meta name="twitter:image" content="https://colorcross.github.io/codex-feishu/social-preview.png" />
-    <meta name="theme-color" content="#0d1118" />
+    <meta name="theme-color" content="#0a0e17" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Serif+SC:wght@500;600;700;900&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="site-shell">
-      <div class="halo halo-amber"></div>
-      <div class="halo halo-teal"></div>
+    <!-- 背景装饰 -->
+    <div class="bg-orbs" aria-hidden="true">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+    <div class="bg-grid" aria-hidden="true"></div>
 
-      <header class="site-header fade-up">
-        <a class="brand-mark" href="https://github.com/colorcross/codex-feishu">Codex Feishu</a>
-        <nav class="site-nav" aria-label="Primary">
-          <a href="./en.html">EN</a>
-          <a href="https://www.npmjs.com/package/codex-feishu">npm</a>
-          <a href="https://github.com/colorcross/codex-feishu">GitHub</a>
-          <a href="https://github.com/colorcross/codex-feishu/tree/main/docs">Docs</a>
-          <a href="https://github.com/colorcross/codex-feishu/releases">Releases</a>
+    <div class="site-shell">
+
+      <!-- 顶部导航 -->
+      <header class="site-header">
+        <a class="brand" href="https://github.com/colorcross/codex-feishu">
+          <span class="brand-icon" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <rect width="28" height="28" rx="8" fill="url(#brandGrad)"/>
+              <rect x="6" y="8" width="16" height="2.5" rx="1.25" fill="#f4ede0" opacity="0.9"/>
+              <rect x="6" y="13" width="10" height="2.5" rx="1.25" fill="#d4845a"/>
+              <rect x="6" y="18" width="13" height="2.5" rx="1.25" fill="#5bb8b0" opacity="0.85"/>
+              <defs>
+                <linearGradient id="brandGrad" x1="0" y1="0" x2="28" y2="28">
+                  <stop offset="0%" stop-color="#1a2235"/>
+                  <stop offset="100%" stop-color="#0d1420"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </span>
+          <span class="brand-name">Codex Feishu</span>
+        </a>
+        <nav class="site-nav" aria-label="主导航">
+          <a href="./en.html" class="nav-link">EN</a>
+          <a href="https://github.com/colorcross/codex-feishu/blob/main/docs/getting-started.md" class="nav-link">文档</a>
+          <a href="https://github.com/colorcross/codex-feishu/releases" class="nav-link">Releases</a>
+          <a href="https://www.npmjs.com/package/codex-feishu" class="nav-link">npm</a>
+          <a href="https://github.com/colorcross/codex-feishu" class="nav-cta">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            GitHub
+          </a>
         </nav>
+        <button class="nav-toggle" aria-label="切换菜单" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
       </header>
 
       <main>
-        <section class="announcement-bar fade-up delay-1" aria-label="Release status">
-          <span class="announcement-pill">npm 已上线</span>
-          <p>`codex-feishu` 已发布到 npm，tag 发布链路会自动同步 npm 与 GitHub Release。</p>
-          <a href="https://www.npmjs.com/package/codex-feishu">查看包页面</a>
-        </section>
+        <!-- 公告栏 -->
+        <div class="announcement fade-in">
+          <span class="announcement-badge">
+            <span class="pulse-dot" aria-hidden="true"></span>
+            v0.1.10 已发布
+          </span>
+          <span class="announcement-text">MCP 接口扩展：支持项目切换、会话接管和自然语言控制命令</span>
+          <a href="https://github.com/colorcross/codex-feishu/releases" class="announcement-link">查看 Release →</a>
+        </div>
 
-        <section class="hero-layout">
-          <article class="hero-panel hero-copy fade-up delay-1">
-            <span class="eyebrow">Feishu × Codex CLI / Project-aware control plane</span>
-            <h1 class="display-stack">
-              <span class="display-line">把飞书</span>
-              <span class="display-line">接到 Codex</span>
-              <span class="display-line display-accent">的控制面。</span>
+        <!-- Hero 区域 -->
+        <section class="hero fade-in delay-1">
+          <div class="hero-content">
+            <div class="hero-eyebrow">
+              <span class="eyebrow-chip">Feishu × Codex CLI</span>
+              <span class="eyebrow-sep" aria-hidden="true">/</span>
+              <span class="eyebrow-sub">Project-aware control plane</span>
+            </div>
+            <h1 class="hero-title">
+              <span class="title-line">把飞书</span>
+              <span class="title-line">接到 Codex</span>
+              <span class="title-line title-accent">的控制面。</span>
             </h1>
-            <p class="hero-body">
-              Codex Feishu 让飞书消息直接进入可续接的 Codex CLI 会话。项目绑定按 <code>chat_id</code> 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见；同一条回复会持续回写状态，支持富文本、卡片、确认式自然语言命令，以及通过 MCP 接给其他应用。
+            <p class="hero-desc">
+              Codex Feishu 让飞书消息直接进入可续接的 Codex CLI 会话。项目绑定按 <code>chat_id</code> 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见；支持富文本、卡片、确认式自然语言命令，以及通过 MCP 接给其他应用。
             </p>
             <div class="hero-actions">
-              <a class="button button-primary" href="https://www.npmjs.com/package/codex-feishu">npm 安装</a>
-              <a class="button button-secondary" href="https://github.com/colorcross/codex-feishu/blob/main/docs/getting-started.md">快速开始</a>
-              <a class="button button-tertiary" href="https://github.com/colorcross/codex-feishu">查看源码</a>
+              <a class="btn btn-primary" href="https://www.npmjs.com/package/codex-feishu">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M0 0v16h16V0H0zm14 14H2V2h12v12z"/><path d="M3 3h10v10H3z" opacity=".3"/></svg>
+                npm 安装
+              </a>
+              <a class="btn btn-secondary" href="https://github.com/colorcross/codex-feishu/blob/main/docs/getting-started.md">快速开始</a>
+              <a class="btn btn-ghost" href="https://github.com/colorcross/codex-feishu">查看源码</a>
             </div>
-            <div class="status-pills" aria-label="Key release facts">
-              <span>chat_id 项目绑定</span>
-              <span>/session adopt</span>
-              <span>/status detail</span>
-              <span>/admin runs</span>
-              <span>project.root 锁</span>
-              <span>queued 可见状态</span>
-              <span>post / card 回复</span>
+            <div class="hero-tags">
+              <span class="tag">chat_id 项目绑定</span>
+              <span class="tag">/session adopt</span>
+              <span class="tag">project.root 锁</span>
+              <span class="tag">queued 可见状态</span>
+              <span class="tag">post / card 回复</span>
+              <span class="tag">MCP 接口</span>
             </div>
-          </article>
+          </div>
 
-          <aside class="hero-stack fade-up delay-2" aria-label="Runtime preview">
-            <article class="hero-panel install-panel">
-              <div class="panel-head">
-                <span class="micro-label">Install / First Run</span>
-                <span class="panel-kicker">latest on npm</span>
+          <div class="hero-demo fade-in delay-2">
+            <div class="demo-card demo-install">
+              <div class="demo-header">
+                <div class="demo-dots" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </div>
+                <span class="demo-title">Install / First Run</span>
+                <span class="demo-badge">latest on npm</span>
               </div>
-              <pre><code>npm install -g codex-feishu
-codex-feishu init --mode global
-export FEISHU_APP_ID=cli_xxx
-export FEISHU_APP_SECRET=***
-codex-feishu doctor --remote
-codex-feishu start
-codex-feishu status</code></pre>
-            </article>
-
-            <article class="hero-panel status-panel">
-              <div class="panel-head">
-                <span class="micro-label">Run State Preview</span>
-                <span class="panel-kicker">same repo, no collisions</span>
-              </div>
-              <pre><code>消息接收: success
-处理状态: queued
-项目: repo-a
-
-当前仓库正在被其他会话操作，已进入排队。
-前方还有 1 个任务。
-阻塞状态: running</code></pre>
-            </article>
-
-            <div class="signal-cluster">
-              <article class="signal-card">
-                <span class="micro-label">Sticky Routing</span>
-                <strong>群里切一次项目，整群后续会继承。</strong>
-              </article>
-              <article class="signal-card">
-                <span class="micro-label">Session Adoption</span>
-                <strong>直接接管 <code>~/.codex/sessions</code> 里的本地会话。</strong>
-              </article>
-              <article class="signal-card">
-                <span class="micro-label">Reply Surface</span>
-                <strong>富文本、卡片、状态回执都直接回到飞书，不暴露内部 run id。</strong>
-              </article>
+              <pre class="demo-code"><code><span class="c-muted">$</span> npm install -g codex-feishu
+<span class="c-muted">$</span> codex-feishu init --mode global
+<span class="c-muted">$</span> export FEISHU_APP_ID=<span class="c-amber">cli_xxx</span>
+<span class="c-muted">$</span> export FEISHU_APP_SECRET=<span class="c-amber">***</span>
+<span class="c-muted">$</span> codex-feishu doctor --remote
+<span class="c-teal">✓</span> codex-feishu start
+<span class="c-teal">✓</span> codex-feishu status</code></pre>
             </div>
-          </aside>
+
+            <div class="demo-card demo-state">
+              <div class="demo-header">
+                <div class="demo-dots" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </div>
+                <span class="demo-title">Run State Preview</span>
+                <span class="demo-badge demo-badge-teal">same repo, no collisions</span>
+              </div>
+              <pre class="demo-code"><code><span class="c-teal">消息接收:</span> success
+<span class="c-amber">处理状态:</span> queued
+<span class="c-muted">项目:</span>    repo-a
+
+当前仓库正在被其他会话操作，
+已进入排队。前方还有 1 个任务。
+<span class="c-muted">阻塞状态:</span> running</code></pre>
+            </div>
+
+            <div class="demo-signals">
+              <div class="signal-item">
+                <span class="signal-label">Sticky Routing</span>
+                <span class="signal-text">群里切一次项目，整群后续会继承。</span>
+              </div>
+              <div class="signal-item">
+                <span class="signal-label">Session Adoption</span>
+                <span class="signal-text">直接接管 <code>~/.codex/sessions</code> 里的本地会话。</span>
+              </div>
+              <div class="signal-item">
+                <span class="signal-label">MCP Surface</span>
+                <span class="signal-text">通过 MCP 接给 OpenClaw 等外部工具。</span>
+              </div>
+            </div>
+          </div>
         </section>
 
-        <section class="signal-rail fade-up delay-2" aria-label="Core proof points">
-          <article>
-            <span class="micro-label">Binding</span>
-            <strong>项目选择按 chat 记住</strong>
-            <p>不是按人各记各的，而是按私聊窗口或群聊上下文持续生效。</p>
-          </article>
-          <article>
-            <span class="micro-label">Resume</span>
-            <strong>既能 resume，也能 adopt</strong>
-            <p>桥接器自己的 session 与本机 Codex 原生 session 现在能接到同一条链路里。</p>
-          </article>
-          <article>
-            <span class="micro-label">Queue</span>
-            <strong>项目队列 + 仓库根锁</strong>
-            <p>同 chat 内同项目串行，不同 chat 命中同一 <code>project.root</code> 也会自动排队。</p>
-          </article>
-          <article>
-            <span class="micro-label">Surface</span>
-            <strong>Wiki / KB / media / run state</strong>
-            <p>文档检索、多媒体上下文、飞书知识库和运行态回复都在同一入口里。</p>
-          </article>
+        <!-- 核心指标栏 -->
+        <section class="metrics-rail fade-in delay-2" aria-label="核心能力概览">
+          <div class="metric-item">
+            <span class="metric-label">Binding</span>
+            <strong class="metric-title">项目选择按 chat 记住</strong>
+            <p class="metric-desc">不是按人各记各的，而是按私聊窗口或群聊上下文持续生效。</p>
+          </div>
+          <div class="metric-divider" aria-hidden="true"></div>
+          <div class="metric-item">
+            <span class="metric-label">Resume</span>
+            <strong class="metric-title">既能 resume，也能 adopt</strong>
+            <p class="metric-desc">桥接器自己的 session 与本机 Codex 原生 session 能接到同一条链路里。</p>
+          </div>
+          <div class="metric-divider" aria-hidden="true"></div>
+          <div class="metric-item">
+            <span class="metric-label">Queue</span>
+            <strong class="metric-title">项目队列 + 仓库根锁</strong>
+            <p class="metric-desc">同 chat 内同项目串行，不同 chat 命中同一 <code>project.root</code> 也会自动排队。</p>
+          </div>
+          <div class="metric-divider" aria-hidden="true"></div>
+          <div class="metric-item">
+            <span class="metric-label">Surface</span>
+            <strong class="metric-title">Wiki / KB / media / run state</strong>
+            <p class="metric-desc">文档检索、多媒体上下文、飞书知识库和运行态回复都在同一入口里。</p>
+          </div>
         </section>
 
-        <section class="section fade-up">
+        <!-- 工作流程 -->
+        <section class="section fade-in">
           <div class="section-head">
-            <span class="micro-label">How it works</span>
+            <span class="section-label">How it works</span>
             <h2 class="section-title">飞书消息进入 Codex 之前，会先经过项目、会话和运行控制。</h2>
           </div>
-          <div class="workflow-grid">
-            <article class="workflow-card">
-              <span class="step-index">01</span>
-              <h3>消息先进入项目绑定层</h3>
-              <p>先取当前 chat 绑定的项目；没绑定就回退默认项目，而不是让每条消息都重新猜仓库。</p>
-            </article>
-            <article class="workflow-card">
-              <span class="step-index">02</span>
-              <h3>会话优先续当前上下文</h3>
-              <p>已有 active session 就直接续；没有的话，可通过 <code>/session adopt latest</code> 接上本机最近会话。</p>
-            </article>
-            <article class="workflow-card">
-              <span class="step-index">03</span>
-              <h3>仓库并发在执行前收口</h3>
-              <p>同一仓库根目录命中全局串行锁时，会先给出 <code>queued</code> 状态和占用原因，而不是静默等待。</p>
-            </article>
-            <article class="workflow-card">
-              <span class="step-index">04</span>
-              <h3>Codex 在明确边界内运行</h3>
-              <p>项目根目录、sandbox、shell、pre-exec 和超时策略都在桥接层内显式管理。</p>
-            </article>
-            <article class="workflow-card">
-              <span class="step-index">05</span>
-              <h3>回复后仍保留控制面</h3>
-              <p>audit、metrics、run state、session history 和卡片操作都会保留下来，便于排障、追踪和持续运维。</p>
-            </article>
+          <div class="flow-grid">
+            <div class="flow-card">
+              <div class="flow-num">01</div>
+              <h3 class="flow-title">消息先进入项目绑定层</h3>
+              <p class="flow-desc">先取当前 chat 绑定的项目；没绑定就回退默认项目，而不是让每条消息都重新猜仓库。</p>
+              <div class="flow-tag">Project Routing</div>
+            </div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-card">
+              <div class="flow-num">02</div>
+              <h3 class="flow-title">会话优先续当前上下文</h3>
+              <p class="flow-desc">已有 active session 就直接续；没有的话，可通过 <code>/session adopt latest</code> 接上本机最近会话。</p>
+              <div class="flow-tag">Session Control</div>
+            </div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-card">
+              <div class="flow-num">03</div>
+              <h3 class="flow-title">仓库并发在执行前收口</h3>
+              <p class="flow-desc">同一仓库根目录命中全局串行锁时，会先给出 <code>queued</code> 状态和占用原因，而不是静默等待。</p>
+              <div class="flow-tag">Runtime Guard</div>
+            </div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-card">
+              <div class="flow-num">04</div>
+              <h3 class="flow-title">Codex 在明确边界内运行</h3>
+              <p class="flow-desc">项目根目录、sandbox、shell、pre-exec 和超时策略都在桥接层内显式管理。</p>
+              <div class="flow-tag">Codex Runner</div>
+            </div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-card">
+              <div class="flow-num">05</div>
+              <h3 class="flow-title">回复后仍保留控制面</h3>
+              <p class="flow-desc">audit、metrics、run state、session history 和卡片操作都会保留下来，便于排障、追踪和持续运维。</p>
+              <div class="flow-tag">Observability</div>
+            </div>
           </div>
         </section>
 
-        <section class="section fade-up">
+        <!-- 运行模式对比 -->
+        <section class="section fade-in">
           <div class="section-head">
-            <span class="micro-label">Capabilities</span>
+            <span class="section-label">Transport Modes</span>
+            <h2 class="section-title">两种接入模式，覆盖个人开发到团队生产。</h2>
+          </div>
+          <div class="mode-grid">
+            <div class="mode-card mode-card-active">
+              <div class="mode-icon" aria-hidden="true">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+                  <circle cx="16" cy="16" r="6" fill="currentColor" opacity="0.6"/>
+                  <path d="M16 4v4M16 24v4M4 16h4M24 16h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+                </svg>
+              </div>
+              <div class="mode-badge">推荐个人使用</div>
+              <h3 class="mode-name">long-connection</h3>
+              <p class="mode-desc">通过官方 SDK WebSocket 长连接接入，不需要公网回调地址，本机开发和个人使用首选。</p>
+              <ul class="mode-pros">
+                <li>无需公网 HTTPS 地址</li>
+                <li>接入快，配置简单</li>
+                <li>支持文本、富文本、卡片回复</li>
+              </ul>
+              <div class="mode-limit">卡片按钮回调需切换到 webhook 模式</div>
+            </div>
+            <div class="mode-card">
+              <div class="mode-icon" aria-hidden="true">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <rect x="4" y="10" width="24" height="16" rx="3" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
+                  <path d="M10 10V8a6 6 0 0112 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+                  <circle cx="16" cy="18" r="2.5" fill="currentColor" opacity="0.7"/>
+                </svg>
+              </div>
+              <div class="mode-badge mode-badge-teal">推荐团队部署</div>
+              <h3 class="mode-name">webhook</h3>
+              <p class="mode-desc">通过飞书事件订阅和卡片回调接入，适合团队共享服务和生产部署，功能最完整。</p>
+              <ul class="mode-pros">
+                <li>事件和卡片回调完整</li>
+                <li>支持卡片按钮交互</li>
+                <li>便于扩展和监控</li>
+              </ul>
+              <div class="mode-limit">需要公网 HTTPS 地址</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 核心能力 -->
+        <section class="section fade-in">
+          <div class="section-head">
+            <span class="section-label">Capabilities</span>
             <h2 class="section-title">为真实项目使用准备的关键能力，都在这一层里。</h2>
           </div>
-          <div class="capability-grid">
-            <article class="capability-card">
-              <span class="micro-label">Project Routing</span>
-              <h3><code>/project &lt;alias&gt;</code> 会真正改写当前 chat 的默认项目</h3>
-              <p>群里切一次，整群后续都落到同一个项目；私聊也会记住各自的当前项目。</p>
-            </article>
-            <article class="capability-card">
-              <span class="micro-label">Session Adoption</span>
-              <h3><code>/session adopt latest|list|&lt;thread_id&gt;</code></h3>
-              <p>飞书侧不再只能续桥接器自己保存的 thread，也能接管本机 Codex CLI 的原生 session。</p>
-            </article>
-            <article class="capability-card">
-              <span class="micro-label">Auto Adopt</span>
-              <h3>切项目后可自动接上最近会话</h3>
-              <p>开启 <code>service.project_switch_auto_adopt_latest = true</code> 后，项目切换会优先保留当前 chat 会话，否则自动接最近匹配的本地 session。</p>
-            </article>
-            <article class="capability-card">
-              <span class="micro-label">Runtime Discipline</span>
-              <h3><code>queue key</code> + <code>project.root</code> 双层串行</h3>
-              <p>同项目 thread 不会乱写，不同群同时操作同一仓库也会被自动收口。</p>
-            </article>
-            <article class="capability-card">
-              <span class="micro-label">Visible Queue</span>
-              <h3>排队不是黑盒</h3>
-              <p><code>/status</code>、状态卡片和普通回复都会显示 <code>queued</code> 原因，区分“当前项目已有任务”和“仓库正在被其他 chat 操作”。</p>
-            </article>
-            <article class="capability-card">
-              <span class="micro-label">Reply Surface</span>
-              <h3>状态、进度和结果会回写到同一条回复</h3>
-              <p>飞书里既可以发送 <code>查看状态</code>、<code>切换到项目 repo-a</code> 这类高置信度命令，也会在变更类操作前先收到确认提示；运行中的进度和最终结果优先更新原消息或原卡片。</p>
-            </article>
-            <article class="capability-card">
-              <span class="micro-label">Isolation & Access</span>
-              <h3>项目级管理员、限流和下载目录可单独配置</h3>
-              <p>单个项目可独立配置 <code>admin_chat_ids</code>、chat 级运行限流，以及附件/临时目录，减少多项目共用时的串扰。</p>
-            </article>
-            <article class="capability-card">
-              <span class="micro-label">MCP Surface</span>
-              <h3>不只给飞书用，也能通过 MCP 暴露给外部工具</h3>
-              <p>直接运行 <code>codex-feishu mcp</code>，即可把项目列表、项目切换、会话接管、运行态、配置历史和自然语言控制命令暴露给 OpenClaw 等支持 MCP 的客户端。</p>
-            </article>
+          <div class="cap-grid">
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M3 10h14M10 3v14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <circle cx="10" cy="10" r="3" fill="currentColor" opacity="0.4"/>
+                </svg>
+              </div>
+              <span class="cap-label">Project Routing</span>
+              <h3 class="cap-title"><code>/project &lt;alias&gt;</code> 会真正改写当前 chat 的默认项目</h3>
+              <p class="cap-desc">群里切一次，整群后续都落到同一个项目；私聊也会记住各自的当前项目。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-teal" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M4 10a6 6 0 1012 0A6 6 0 004 10z" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M10 7v3l2 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Session Adoption</span>
+              <h3 class="cap-title"><code>/session adopt latest|list|&lt;thread_id&gt;</code></h3>
+              <p class="cap-desc">飞书侧不再只能续桥接器自己保存的 thread，也能接管本机 Codex CLI 的原生 session。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <rect x="3" y="3" width="14" height="14" rx="3" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M7 10h6M10 7v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity="0.6"/>
+                </svg>
+              </div>
+              <span class="cap-label">Auto Adopt</span>
+              <h3 class="cap-title">切项目后可自动接上最近会话</h3>
+              <p class="cap-desc">开启 <code>project_switch_auto_adopt_latest = true</code> 后，项目切换会优先保留当前 chat 会话，否则自动接最近匹配的本地 session。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-teal" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 3L3 7v6l7 4 7-4V7L10 3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Runtime Discipline</span>
+              <h3 class="cap-title"><code>queue key</code> + <code>project.root</code> 双层串行</h3>
+              <p class="cap-desc">同项目 thread 不会乱写，不同群同时操作同一仓库也会被自动收口。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M4 6h12M4 10h8M4 14h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Wiki & Knowledge</span>
+              <h3 class="cap-title">飞书知识库完整读写接入</h3>
+              <p class="cap-desc">支持 <code>/wiki</code> 搜索、读取、创建、改名、复制、移动和成员管理；<code>/kb search</code> 搜索项目本地文档。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-teal" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity="0.4"/>
+                  <rect x="6" y="6" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                </svg>
+              </div>
+              <span class="cap-label">MCP Surface</span>
+              <h3 class="cap-title">不只给飞书用，也能通过 MCP 暴露给外部工具</h3>
+              <p class="cap-desc">运行 <code>codex-feishu mcp</code>，即可把项目列表、项目切换、会话接管和自然语言控制命令暴露给 OpenClaw 等支持 MCP 的客户端。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M10 6v4l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Memory System</span>
+              <h3 class="cap-title">项目记忆与群共享记忆</h3>
+              <p class="cap-desc">支持 <code>/memory save/search/pin/forget/restore</code>，SQLite + FTS5 检索，可配置 TTL、置顶策略和后台定时清理。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-teal" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M3 5h14v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5z" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M3 5l7 7 7-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Observability</span>
+              <h3 class="cap-title">审计日志、Prometheus 指标、Grafana 示例</h3>
+              <p class="cap-desc">内置 16 项 Prometheus 指标，支持 Alertmanager 告警和 Grafana 可视化，所有数据本地可控。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M6 3l8 7-8 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Admin Control</span>
+              <h3 class="cap-title">管理员控制面与动态配置</h3>
+              <p class="cap-desc">通过 <code>/admin</code> 命令动态维护管理员、群聊白名单、项目配置，支持配置历史快照和一键回滚。</p>
+            </div>
           </div>
         </section>
 
-        <section class="section fade-up">
+        <!-- 快速开始 -->
+        <section class="section fade-in">
           <div class="section-head">
-            <span class="micro-label">Quick Start</span>
+            <span class="section-label">Quick Start</span>
             <h2 class="section-title">从安装到真实联调，只需要沿着这条最短路径走一遍。</h2>
           </div>
-          <div class="quickstart-grid">
-            <article class="quick-card code-card">
-              <div class="panel-head">
-                <span class="micro-label">CLI</span>
-                <span class="panel-kicker">install and bootstrap</span>
+          <div class="qs-grid">
+            <div class="qs-card qs-code">
+              <div class="qs-card-head">
+                <span class="qs-card-label">CLI</span>
+                <span class="qs-card-sub">install and bootstrap</span>
               </div>
-              <pre><code>npm install -g codex-feishu
+              <pre class="qs-pre"><code><span class="c-muted"># 安装</span>
+npm install -g codex-feishu
 codex-feishu init --mode global
+
+<span class="c-muted"># 检查</span>
 codex-feishu doctor
 codex-feishu doctor --remote
-codex-feishu doctor --fix
+
+<span class="c-muted"># 启动</span>
 codex-feishu start
 codex-feishu logs --follow
 codex-feishu mcp</code></pre>
-            </article>
-            <article class="quick-card code-card">
-              <div class="panel-head">
-                <span class="micro-label">Feishu</span>
-                <span class="panel-kicker">switch, adopt, continue</span>
+            </div>
+            <div class="qs-card qs-code">
+              <div class="qs-card-head">
+                <span class="qs-card-label">Feishu</span>
+                <span class="qs-card-sub">switch, adopt, continue</span>
               </div>
-              <pre><code>项目列表
+              <pre class="qs-pre"><code><span class="c-muted"># 项目管理</span>
+/projects
+/project repo-a
+
+<span class="c-muted"># 会话管理</span>
+/session adopt latest
+/session list
+
+<span class="c-muted"># 自然语言命令</span>
 切换到项目 repo-a
 接管最新会话
-查看详细状态
-/admin runs
-继续把这个项目的发布链路收尾</code></pre>
-            </article>
-            <article class="quick-card summary-card">
-              <span class="micro-label">Release Surface</span>
-              <ul class="summary-list">
-                <li><strong>npm</strong><span>直接 `npm install -g codex-feishu`</span></li>
-                <li><strong>GitHub Release</strong><span>tag 发布同步生成 tgz 资产</span></li>
-                <li><strong>GitHub Pages</strong><span>官网继续走纯静态部署</span></li>
-                <li><strong>Docs</strong><span>README / docs / workflow 口径统一</span></li>
+查看详细状态</code></pre>
+            </div>
+            <div class="qs-card qs-summary">
+              <div class="qs-card-head">
+                <span class="qs-card-label">Release Surface</span>
+              </div>
+              <ul class="qs-list">
+                <li>
+                  <strong>npm</strong>
+                  <span>直接 <code>npm install -g codex-feishu</code></span>
+                </li>
+                <li>
+                  <strong>GitHub Release</strong>
+                  <span>tag 发布同步生成 tgz 资产</span>
+                </li>
+                <li>
+                  <strong>GitHub Pages</strong>
+                  <span>官网继续走纯静态部署</span>
+                </li>
+                <li>
+                  <strong>Docs</strong>
+                  <span>README / docs / workflow 口径统一</span>
+                </li>
               </ul>
-            </article>
+            </div>
           </div>
         </section>
 
-        <section class="section fade-up">
+        <!-- 最小配置示例 -->
+        <section class="section fade-in">
           <div class="section-head">
-            <span class="micro-label">Docs & Surface Area</span>
+            <span class="section-label">Configuration</span>
+            <h2 class="section-title">一份最小配置就能跑起来，按需逐步扩展。</h2>
+          </div>
+          <div class="config-layout">
+            <div class="config-code-wrap">
+              <div class="config-code-head">
+                <span class="config-filename">~/.codex-feishu/config.toml</span>
+                <span class="config-badge">最小配置示例</span>
+              </div>
+              <pre class="config-pre"><code><span class="c-muted">version = 1</span>
+
+[service]
+default_project = <span class="c-amber">"default"</span>
+reply_mode = <span class="c-amber">"post"</span>  <span class="c-muted"># text | post | card</span>
+
+[codex]
+bin = <span class="c-amber">"codex"</span>
+default_sandbox = <span class="c-amber">"workspace-write"</span>
+
+[storage]
+dir = <span class="c-amber">"~/.codex-feishu/state"</span>
+
+[security]
+allowed_project_roots = [<span class="c-amber">"/srv/repos"</span>]
+admin_chat_ids = [<span class="c-amber">"oc_admin_chat_1"</span>]
+
+[feishu]
+app_id = <span class="c-amber">"env:FEISHU_APP_ID"</span>
+app_secret = <span class="c-amber">"env:FEISHU_APP_SECRET"</span>
+transport = <span class="c-amber">"long-connection"</span>
+
+[projects.default]
+root = <span class="c-amber">"/srv/repos/repo-a"</span>
+session_scope = <span class="c-amber">"chat"</span></code></pre>
+            </div>
+            <div class="config-tips">
+              <div class="config-tip">
+                <div class="tip-icon tip-icon-amber" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2a5 5 0 110 10A5 5 0 018 3zm-.5 2.5v3.25l2.75 1.75-.75 1.25-3.5-2.25V5.5h1.5z"/></svg>
+                </div>
+                <div>
+                  <strong>快速启动</strong>
+                  <p>只需设置 <code>FEISHU_APP_ID</code> 和 <code>FEISHU_APP_SECRET</code> 两个环境变量即可启动。</p>
+                </div>
+              </div>
+              <div class="config-tip">
+                <div class="tip-icon tip-icon-teal" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2a5 5 0 110 10A5 5 0 018 3zM7 5h2v5H7V5zm0 6h2v2H7v-2z"/></svg>
+                </div>
+                <div>
+                  <strong>回复模式选择</strong>
+                  <p>个人使用推荐 <code>post</code>（富文本），团队部署且需要卡片按钮时切换到 <code>card</code>。</p>
+                </div>
+              </div>
+              <div class="config-tip">
+                <div class="tip-icon tip-icon-amber" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2a5 5 0 110 10A5 5 0 018 3zm-1 4h2v5H7V7zm0-3h2v2H7V4z"/></svg>
+                </div>
+                <div>
+                  <strong>多项目绑定</strong>
+                  <p>用 <code>codex-feishu bind &lt;alias&gt; &lt;path&gt;</code> 绑定多个仓库，飞书里用 <code>/project &lt;alias&gt;</code> 切换。</p>
+                </div>
+              </div>
+              <div class="config-tip">
+                <div class="tip-icon tip-icon-teal" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2a5 5 0 110 10A5 5 0 018 3zM5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.5"/></svg>
+                </div>
+                <div>
+                  <strong>安全边界</strong>
+                  <p><code>allowed_project_roots</code> 限制 Codex 可操作的仓库目录，生产环境请填明确路径。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 文档资源 -->
+        <section class="section fade-in">
+          <div class="section-head">
+            <span class="section-label">Docs & Resources</span>
             <h2 class="section-title">安装、文档、版本和支持入口都可以从这里直接进入。</h2>
           </div>
-          <div class="resource-grid">
-            <a href="https://github.com/colorcross/codex-feishu/blob/main/README.md">
+          <div class="res-grid">
+            <a class="res-card" href="https://github.com/colorcross/codex-feishu/blob/main/README.md">
+              <div class="res-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 3h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5"/><path d="M7 7h6M7 10h6M7 13h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </div>
               <strong>README</strong>
               <span>最新安装方式、命令面和运行模型</span>
             </a>
-            <a href="https://github.com/colorcross/codex-feishu/blob/main/docs/getting-started.md">
+            <a class="res-card" href="https://github.com/colorcross/codex-feishu/blob/main/docs/getting-started.md">
+              <div class="res-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 3l7 4v6l-7 4-7-4V7l7-4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+              </div>
               <strong>快速开始</strong>
               <span>从 npm 安装到飞书联调的最短路径</span>
             </a>
-            <a href="https://github.com/colorcross/codex-feishu/blob/main/docs/faq.md">
-              <strong>FAQ</strong>
-              <span>项目绑定、session adopt、排队状态和白名单</span>
-            </a>
-            <a href="https://github.com/colorcross/codex-feishu/blob/main/docs/architecture.md">
+            <a class="res-card" href="https://github.com/colorcross/codex-feishu/blob/main/docs/architecture.md">
+              <div class="res-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="7" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M6 9v2M14 9v2M10 9v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </div>
               <strong>架构设计</strong>
               <span>selection key、session key、queue key 和仓库根锁</span>
             </a>
-            <a href="https://github.com/colorcross/codex-feishu/releases">
+            <a class="res-card" href="https://github.com/colorcross/codex-feishu/blob/main/docs/faq.md">
+              <div class="res-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M10 11V9a2 2 0 10-2-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="14" r="1" fill="currentColor"/></svg>
+              </div>
+              <strong>FAQ</strong>
+              <span>项目绑定、session adopt、排队状态和白名单</span>
+            </a>
+            <a class="res-card" href="https://github.com/colorcross/codex-feishu/releases">
+              <div class="res-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 3v10M6 9l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </div>
               <strong>Releases</strong>
               <span>版本产物、变更摘要和自动发布链路</span>
             </a>
-            <a href="https://github.com/colorcross/codex-feishu/discussions">
+            <a class="res-card" href="https://github.com/colorcross/codex-feishu/discussions">
+              <div class="res-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 4h12a1 1 0 011 1v8a1 1 0 01-1 1H7l-4 3V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+              </div>
               <strong>Discussions</strong>
               <span>部署交流、运维经验和产品方向讨论</span>
             </a>
           </div>
         </section>
 
-        <section class="final-call fade-up">
-          <div>
-            <span class="micro-label">Start where people already work</span>
-            <h2 class="section-title">把飞书接成一个可管理、可续接、可落地的 Codex 工作入口。</h2>
-            <p class="final-copy">适合需要项目路由、会话续接、并发保护和运行状态可见性的真实团队工作流。</p>
+        <!-- CTA -->
+        <section class="cta fade-in">
+          <div class="cta-content">
+            <span class="section-label">Start where people already work</span>
+            <h2 class="cta-title">把飞书接成一个可管理、可续接、可落地的 Codex 工作入口。</h2>
+            <p class="cta-desc">适合需要项目路由、会话续接、并发保护和运行状态可见性的真实团队工作流。</p>
+            <div class="cta-actions">
+              <a class="btn btn-primary" href="https://www.npmjs.com/package/codex-feishu">npm 安装</a>
+              <a class="btn btn-secondary" href="https://github.com/colorcross/codex-feishu/releases">查看 Release</a>
+              <a class="btn btn-ghost" href="https://github.com/colorcross/codex-feishu/tree/main/docs">打开 Docs</a>
+            </div>
           </div>
-          <div class="hero-actions">
-            <a class="button button-primary" href="https://www.npmjs.com/package/codex-feishu">npm 安装</a>
-            <a class="button button-secondary" href="https://github.com/colorcross/codex-feishu/releases">查看 Release</a>
-            <a class="button button-tertiary" href="https://github.com/colorcross/codex-feishu/tree/main/docs">打开 Docs</a>
+          <div class="cta-deco" aria-hidden="true">
+            <div class="cta-orb"></div>
           </div>
         </section>
       </main>
 
-      <footer class="site-footer fade-up">
-        <p>Codex Feishu · 让沟通入口直接连到可管理的 Codex 执行控制面。</p>
-        <div>
+      <!-- 页脚 -->
+      <footer class="site-footer">
+        <div class="footer-brand">
+          <span class="brand-name">Codex Feishu</span>
+          <span class="footer-tagline">让沟通入口直接连到可管理的 Codex 执行控制面。</span>
+        </div>
+        <nav class="footer-nav" aria-label="页脚导航">
           <a href="https://github.com/colorcross/codex-feishu">GitHub</a>
           <a href="https://www.npmjs.com/package/codex-feishu">npm</a>
           <a href="https://github.com/colorcross/codex-feishu/blob/main/SUPPORT.md">Support</a>
           <a href="https://github.com/colorcross/codex-feishu/blob/main/CONTRIBUTING.md">Contributing</a>
           <a href="https://github.com/colorcross/codex-feishu/blob/main/SECURITY.md">Security</a>
-        </div>
+          <a href="https://github.com/colorcross/codex-feishu/blob/main/LICENSE">MIT License</a>
+        </nav>
       </footer>
     </div>
+
+    <script>
+      // 移动端导航切换
+      const toggle = document.querySelector('.nav-toggle');
+      const nav = document.querySelector('.site-nav');
+      if (toggle && nav) {
+        toggle.addEventListener('click', () => {
+          const expanded = toggle.getAttribute('aria-expanded') === 'true';
+          toggle.setAttribute('aria-expanded', String(!expanded));
+          nav.classList.toggle('nav-open');
+        });
+      }
+
+      // 滚动淡入动画
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+          }
+        });
+      }, { threshold: 0.08 });
+
+      document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+    </script>
   </body>
 </html>

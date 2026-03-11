@@ -6,18 +6,21 @@ Chinese is still the primary documentation language for this project. This page 
 
 1. [README](../README.en.md)
 2. [Getting started](getting-started.md)
-3. [Deployment](deployment.md)
-4. [Security and operations](security.md)
-5. [FAQ](faq.md)
-6. [Memory design](memory-design.md)
-7. [Community and support](community.md)
-8. [Feishu roadmap](feishu-roadmap.md)
-9. [Website](website.md)
+3. [Architecture](architecture.md)
+4. [Deployment](deployment.md)
+5. [Security and operations](security.md)
+6. [FAQ](faq.md)
+7. [Memory design](memory-design.md)
+8. [Community and support](community.md)
+9. [Feishu roadmap](feishu-roadmap.md)
+10. [Website](website.md)
 
 ## What each document is for
 
 - [getting-started.md](getting-started.md)
   - install, bootstrap, environment variables, first run, reply modes, admin commands, `/session adopt`, queued-state prompts, and MCP control tools
+- [architecture.md](architecture.md)
+  - deep dive into the internal mechanisms: selection key, session key, queue key, and repo-root lock
 - [deployment.md](deployment.md)
   - local-first setup, shared deployment, `start|status|logs|ps|stop|restart`, probes, and MCP clients such as OpenClaw
 - [security.md](security.md)
