@@ -17,7 +17,7 @@
 
 Codex Feishu is a Feishu (Lark) bridge designed for the Codex CLI. It is not just a message forwarding tool, but a **control plane with project awareness, session adoption, and concurrency protection**.
 
-It routes Feishu messages directly into resumable Codex CLI sessions. Project bindings are persisted by `chat_id`, local sessions can be adopted, shared repositories are automatically serialized, and queued runtime states are directly visible within Feishu.
+It routes Feishu messages directly into resumable Codex CLI sessions. Project bindings are persisted by `chat_id`, local sessions can be adopted, shared repositories are automatically serialized, and queued runtime states are directly visible within Feishu, with in-place rich-text/card status updates.
 
 ## 🌟 Core Features
 
@@ -26,7 +26,7 @@ It routes Feishu messages directly into resumable Codex CLI sessions. Project bi
 | **Sticky Routing** | Project selection is remembered by `chat_id`. Switch once in a group, and the entire group inherits it; DMs also remember their own current project. |
 | **Session Adoption** | Can resume the bridge's own sessions, or directly adopt native local sessions from `~/.codex/sessions` via `/session adopt`. |
 | **Runtime Guard** | Dual-layer serialization with `queue key` + `project.root`. Threads in the same project won't conflict, and concurrent operations on the same repository across different chats are automatically queued with visible status. |
-| **Wiki & KB Access** | Full read/write access to Feishu Wiki, supporting `/wiki` search, read, create, rename, etc.; supports `/kb search` for local project documents. |
+| **Docs / Base / Tasks** | Beyond `/wiki` and `/kb search`, the bridge can read/create Feishu Docs, list/create/complete Tasks, and list/write Base records. |
 | **Media Aware** | Images, files, audio, and rich text messages are parsed into structured metadata and injected into Codex prompts. |
 | **MCP Surface** | Not just for Feishu. Run `codex-feishu mcp` to expose core capabilities through `stdio` or `HTTP/SSE`, with multi-token Bearer rotation for remote clients. |
 | **Access Roles** | Supports `viewer / operator / admin` plus finer capability allow-lists for sessions, runs, config changes, and service operations. |
@@ -81,6 +81,9 @@ In Feishu, you can interact with Codex directly using natural language or slash 
 # Knowledge Base Operations
 /wiki search deployment docs
 /kb search architecture design
+/doc read doxcn123
+/task create Follow up the release checklist
+/base records app_token tbl_id 5
 
 # Natural Language Commands
 Switch to project repo-a
@@ -149,6 +152,14 @@ root = "/srv/repos/repo-a"
 session_scope = "chat"
 run_priority = 200
 ```
+
+Feishu object tools and status cards:
+
+- `/doc read <url|token>` and `/doc create <title>` for native Feishu Docs
+- `/task list|get|create|complete` for Feishu Tasks
+- `/base tables|records|create|update` for Feishu Base
+- write operations require confirmation before execution
+- runtime cards expose phases such as `queued / preparing context / generating / executing / completed / failed / cancelled`
 
 ## 📚 Documentation Navigation
 

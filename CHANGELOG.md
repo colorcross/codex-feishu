@@ -13,6 +13,8 @@
 - MCP 鉴权扩展为多 token / 轮换模式，并支持标记当前主 token。
 - 项目锁调度新增 `run_priority`，同仓库竞争时可按项目优先级执行。
 - 审计新增 retention / archive / cleanup 策略，并接入 `doctor --fix` 与后台维护循环。
+- 飞书新增原生 `Doc / Task / Base` 工具命令，写操作统一走确认机制，并把运行态卡片阶段细化为排队、准备上下文、生成中、执行中、完成/失败/取消。
+- MCP 集成测试放宽响应等待窗口，避免在整套测试负载下因为 5 秒门槛过紧而偶发超时。
 
 ### Included
 
@@ -47,6 +49,18 @@
   - `docs/deployment.md`
   - `website/index.html`
   - `website/en.html`
+- 飞书对象工具面与状态卡片：
+  - `src/bridge/commands.ts`
+  - `src/bridge/service.ts`
+  - `src/feishu/doc.ts`
+  - `src/feishu/task.ts`
+  - `src/feishu/base.ts`
+  - `src/feishu/cards.ts`
+  - `tests/commands.test.ts`
+  - `tests/bridge-service.test.ts`
+  - `tests/cards.test.ts`
+  - `tests/mcp-server.test.ts`
+  - `tests/mcp-http-server.test.ts`
 
 ## v0.1.10 - 2026-03-11
 

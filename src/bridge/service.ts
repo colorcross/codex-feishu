@@ -26,6 +26,9 @@ import { RunStateStore, type RunState } from '../state/run-state-store.js';
 import { isProcessAlive, terminateProcess } from '../runtime/process.js';
 import { resolveKnowledgeRoots, searchKnowledgeBase } from '../knowledge/search.js';
 import { FeishuWikiClient } from '../feishu/wiki.js';
+import { FeishuDocClient } from '../feishu/doc.js';
+import { FeishuBaseClient } from '../feishu/base.js';
+import { FeishuTaskClient } from '../feishu/task.js';
 import { resolveMessageResources } from '../feishu/message-resource.js';
 import { MemoryStore } from '../state/memory-store.js';
 import { retrieveMemoryContext, type MemoryContext } from '../memory/retrieve.js';
@@ -242,11 +245,11 @@ export class CodexFeishuService {
       attachment_count: context.attachments.length,
     });
     const isNaturalLanguageCommand = !normalizedText.startsWith('/') && command.kind !== 'prompt';
-    if (isNaturalLanguageCommand && this.config.service.natural_language_command_confirmation && requiresCommandConfirmation(command)) {
+    if (this.shouldRequireCommandConfirmation(command, isNaturalLanguageCommand)) {
       await this.pendingCommandStore.save({
         chatId: context.chat_id,
         actorId: context.actor_id,
-        sourceText: normalizedText,
+        sourceText: context.text,
         summary: describeBridgeCommand(command),
         command,
         ttlSeconds: this.config.service.natural_language_confirmation_ttl_seconds,
@@ -261,7 +264,7 @@ export class CodexFeishuService {
         context.chat_id,
         [
           `检测到命令意图: ${describeBridgeCommand(command)}`,
-          '这是一条会改变会话、配置或运行状态的自然语言命令。',
+          '这是一条会改变会话、配置、运行状态或飞书对象的命令。',
           `请在 ${this.config.service.natural_language_confirmation_ttl_seconds} 秒内回复“确认”继续，或回复“取消”放弃。`,
         ].join('\n'),
         context.message_id,
@@ -292,6 +295,15 @@ export class CodexFeishuService {
           return;
         case 'kb':
           await this.handleKnowledgeCommand(context, selectionKey, command.action, command.query);
+          return;
+        case 'doc':
+          await this.handleDocCommand(context, selectionKey, command.action, command.value, command.extra);
+          return;
+        case 'task':
+          await this.handleTaskCommand(context, selectionKey, command.action, command.value);
+          return;
+        case 'base':
+          await this.handleBaseCommand(context, selectionKey, command.action, command.appToken, command.tableId, command.recordId, command.value);
           return;
         case 'memory':
           await this.handleMemoryCommand(context, selectionKey, command.action, command.scope, command.value, command.filters);
@@ -380,6 +392,7 @@ export class CodexFeishuService {
                   title: '已加入排队',
                   body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'queued', scheduled.queued.detail),
                   runStatus: 'queued',
+                  runPhase: '排队中',
                   runId: scheduled.runId,
                   replyToMessageId: context.message_id,
                   originalText: context.text,
@@ -390,6 +403,7 @@ export class CodexFeishuService {
                   title: 'Codex 处理中',
                   body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'running', '已收到消息，正在处理。'),
                   runStatus: 'running',
+                  runPhase: '准备上下文',
                   runId: scheduled.runId,
                   replyToMessageId: context.message_id,
                   originalText: context.text,
@@ -543,6 +557,7 @@ export class CodexFeishuService {
         projectAlias,
         sessionId: conversation.projects[projectAlias]?.thread_id,
         runStatus: scheduled.queued ? 'queued' : undefined,
+        runPhase: scheduled.queued ? '排队中' : undefined,
         includeActions: false,
       });
     }
@@ -650,6 +665,7 @@ export class CodexFeishuService {
       title: 'Codex 处理中',
       body: this.buildAcknowledgedRunReply(input.projectAlias, 'running', '已收到消息，正在处理。'),
       runStatus: 'running',
+      runPhase: '执行中',
       runId,
     });
 
@@ -790,6 +806,7 @@ export class CodexFeishuService {
         title: 'Codex 已完成',
         body: [`项目: ${input.projectAlias}`, `耗时: ${durationSeconds}s`, '', excerpt || 'Codex 已完成，但没有返回可显示文本。'].join('\n'),
         runStatus: 'success',
+        runPhase: '已完成',
         cardSummary,
         sessionId: result.sessionId,
       });
@@ -865,6 +882,7 @@ export class CodexFeishuService {
         title: cancelled ? '运行已取消' : '执行失败',
         body: cancelled ? [`项目: ${input.projectAlias}`, '当前运行已取消。'].join('\n') : [`项目: ${input.projectAlias}`, '执行失败。', '', message].join('\n'),
         runStatus: cancelled ? 'cancelled' : 'failure',
+        runPhase: cancelled ? '已取消' : '失败',
         cardSummary: truncateForFeishuCard(cancelled ? '当前运行已取消。' : message),
       });
     } finally {
@@ -1788,6 +1806,260 @@ export class CodexFeishuService {
     );
   }
 
+  private async handleDocCommand(
+    context: IncomingMessageContext,
+    selectionKey: string,
+    action: 'read' | 'create',
+    value?: string,
+    extra?: string,
+  ): Promise<void> {
+    const projectContext = await this.resolveProjectContext(context, selectionKey);
+    if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, action === 'create' ? 'operator' : 'viewer')) {
+      await this.sendTextReply(context.chat_id, `当前 chat_id 无权${action === 'create' ? '写入' : '读取'}项目 ${projectContext.projectAlias} 关联的飞书文档。`, context.message_id, context.text);
+      return;
+    }
+    const docClient = new FeishuDocClient(this.feishuClient.createSdkClient());
+
+    if (action === 'create') {
+      const title = value?.trim();
+      if (!title) {
+        await this.sendTextReply(context.chat_id, '用法: /doc create <title>', context.message_id, context.text);
+        return;
+      }
+      const created = await docClient.create(title, extra?.trim());
+      await this.auditLog.append({
+        type: 'doc.create',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        project_alias: projectContext.projectAlias,
+        document_id: created.documentId,
+        title: created.title,
+      });
+      await this.sendTextReply(
+        context.chat_id,
+        ['已创建飞书文档', `标题: ${created.title ?? title}`, `文档: ${created.documentId}`, ...(created.url ? [`链接: ${created.url}`] : [])].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    if (!value) {
+      await this.sendTextReply(context.chat_id, '用法: /doc read <url|token>', context.message_id, context.text);
+      return;
+    }
+
+    const document = await docClient.read(value);
+    await this.auditLog.append({
+      type: 'doc.read',
+      chat_id: context.chat_id,
+      actor_id: context.actor_id,
+      project_alias: projectContext.projectAlias,
+      document_id: document.documentId,
+      title: document.title,
+    });
+    await this.sendTextReply(
+      context.chat_id,
+      [
+        `标题: ${document.title ?? '未知'}`,
+        `文档: ${document.documentId}`,
+        ...(document.url ? [`链接: ${document.url}`] : []),
+        '',
+        truncateExcerpt(document.content?.replace(/\s+/g, ' ').trim() ?? '文档暂无可读取的纯文本内容。', 1200),
+      ].join('\n'),
+      context.message_id,
+      context.text,
+    );
+  }
+
+  private async handleTaskCommand(
+    context: IncomingMessageContext,
+    selectionKey: string,
+    action: 'list' | 'get' | 'create' | 'complete',
+    value?: string,
+  ): Promise<void> {
+    const projectContext = await this.resolveProjectContext(context, selectionKey);
+    if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, action === 'create' || action === 'complete' ? 'operator' : 'viewer')) {
+      await this.sendTextReply(context.chat_id, `当前 chat_id 无权${action === 'create' || action === 'complete' ? '写入' : '查看'}项目 ${projectContext.projectAlias} 关联的飞书任务。`, context.message_id, context.text);
+      return;
+    }
+    const taskClient = new FeishuTaskClient(this.feishuClient.createSdkClient());
+
+    if (action === 'list') {
+      const limit = clampListLimit(value, 10, 20);
+      const tasks = await taskClient.list(limit);
+      const lines = tasks.length > 0
+        ? tasks.map((task, index) => `${index + 1}. ${task.summary ?? '(无标题)'}\n   guid: ${task.guid}\n   status: ${task.status ?? 'unknown'}${task.url ? `\n   url: ${task.url}` : ''}`)
+        : ['当前没有可见任务。'];
+      await this.sendTextReply(context.chat_id, ['最近任务', '', ...lines].join('\n'), context.message_id, context.text);
+      return;
+    }
+
+    if (action === 'get') {
+      if (!value) {
+        await this.sendTextReply(context.chat_id, '用法: /task get <task_guid>', context.message_id, context.text);
+        return;
+      }
+      const task = await taskClient.get(value);
+      await this.auditLog.append({
+        type: 'task.read',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        project_alias: projectContext.projectAlias,
+        task_guid: task.guid,
+      });
+      await this.sendTextReply(
+        context.chat_id,
+        [
+          `任务: ${task.summary ?? '(无标题)'}`,
+          `guid: ${task.guid}`,
+          `status: ${task.status ?? 'unknown'}`,
+          ...(task.url ? [`链接: ${task.url}`] : []),
+          '',
+          task.description ?? '无描述',
+        ].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    if (action === 'create') {
+      const summary = value?.trim();
+      if (!summary) {
+        await this.sendTextReply(context.chat_id, '用法: /task create <summary>', context.message_id, context.text);
+        return;
+      }
+      const task = await taskClient.create(summary);
+      await this.auditLog.append({
+        type: 'task.create',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        project_alias: projectContext.projectAlias,
+        task_guid: task.guid,
+        summary: task.summary,
+      });
+      await this.sendTextReply(
+        context.chat_id,
+        [`已创建任务`, `标题: ${task.summary ?? summary}`, `guid: ${task.guid}`, ...(task.url ? [`链接: ${task.url}`] : [])].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    if (!value) {
+      await this.sendTextReply(context.chat_id, '用法: /task complete <task_guid>', context.message_id, context.text);
+      return;
+    }
+    const task = await taskClient.complete(value);
+    await this.auditLog.append({
+      type: 'task.complete',
+      chat_id: context.chat_id,
+      actor_id: context.actor_id,
+      project_alias: projectContext.projectAlias,
+      task_guid: task.guid,
+      summary: task.summary,
+    });
+    await this.sendTextReply(
+      context.chat_id,
+      [`已完成任务`, `标题: ${task.summary ?? '(无标题)'}`, `guid: ${task.guid}`, `status: ${task.status ?? 'unknown'}`].join('\n'),
+      context.message_id,
+      context.text,
+    );
+  }
+
+  private async handleBaseCommand(
+    context: IncomingMessageContext,
+    selectionKey: string,
+    action: 'tables' | 'records' | 'create' | 'update',
+    appToken?: string,
+    tableId?: string,
+    recordId?: string,
+    value?: string,
+  ): Promise<void> {
+    const projectContext = await this.resolveProjectContext(context, selectionKey);
+    if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, action === 'create' || action === 'update' ? 'operator' : 'viewer')) {
+      await this.sendTextReply(context.chat_id, `当前 chat_id 无权${action === 'create' || action === 'update' ? '写入' : '查看'}项目 ${projectContext.projectAlias} 关联的多维表格。`, context.message_id, context.text);
+      return;
+    }
+    const baseClient = new FeishuBaseClient(this.feishuClient.createSdkClient());
+
+    if (action === 'tables') {
+      if (!appToken) {
+        await this.sendTextReply(context.chat_id, '用法: /base tables <app_token>', context.message_id, context.text);
+        return;
+      }
+      const tables = await baseClient.listTables(appToken, 20);
+      const lines = tables.length > 0
+        ? tables.map((table, index) => `${index + 1}. ${table.name ?? '(未命名表)'}\n   table_id: ${table.tableId}${table.revision !== undefined ? `\n   revision: ${table.revision}` : ''}`)
+        : ['当前 Base 中没有可见数据表。'];
+      await this.sendTextReply(context.chat_id, [`Base: ${appToken}`, '', ...lines].join('\n'), context.message_id, context.text);
+      return;
+    }
+
+    if (action === 'records') {
+      if (!appToken || !tableId) {
+        await this.sendTextReply(context.chat_id, '用法: /base records <app_token> <table_id> [limit]', context.message_id, context.text);
+        return;
+      }
+      const limit = clampListLimit(value, 10, 20);
+      const records = await baseClient.listRecords(appToken, tableId, limit);
+      const lines = records.length > 0
+        ? records.map((record, index) => `${index + 1}. ${record.recordId}\n   fields: ${truncateExcerpt(JSON.stringify(record.fields), 240)}${record.recordUrl ? `\n   url: ${record.recordUrl}` : ''}`)
+        : ['当前数据表没有可见记录。'];
+      await this.sendTextReply(context.chat_id, [`Base: ${appToken}`, `Table: ${tableId}`, '', ...lines].join('\n'), context.message_id, context.text);
+      return;
+    }
+
+    if (action === 'create') {
+      if (!appToken || !tableId || !value) {
+        await this.sendTextReply(context.chat_id, '用法: /base create <app_token> <table_id> <json>', context.message_id, context.text);
+        return;
+      }
+      const fields = parseJsonObject(value);
+      const record = await baseClient.createRecord(appToken, tableId, fields);
+      await this.auditLog.append({
+        type: 'base.record.create',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        project_alias: projectContext.projectAlias,
+        app_token: appToken,
+        table_id: tableId,
+        record_id: record.recordId,
+      });
+      await this.sendTextReply(
+        context.chat_id,
+        [`已创建 Base 记录`, `app: ${appToken}`, `table: ${tableId}`, `record: ${record.recordId}`, `fields: ${truncateExcerpt(JSON.stringify(record.fields), 240)}`].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    if (!appToken || !tableId || !recordId || !value) {
+      await this.sendTextReply(context.chat_id, '用法: /base update <app_token> <table_id> <record_id> <json>', context.message_id, context.text);
+      return;
+    }
+    const fields = parseJsonObject(value);
+    const record = await baseClient.updateRecord(appToken, tableId, recordId, fields);
+    await this.auditLog.append({
+      type: 'base.record.update',
+      chat_id: context.chat_id,
+      actor_id: context.actor_id,
+      project_alias: projectContext.projectAlias,
+      app_token: appToken,
+      table_id: tableId,
+      record_id: record.recordId,
+    });
+    await this.sendTextReply(
+      context.chat_id,
+      [`已更新 Base 记录`, `app: ${appToken}`, `table: ${tableId}`, `record: ${record.recordId}`, `fields: ${truncateExcerpt(JSON.stringify(record.fields), 240)}`].join('\n'),
+      context.message_id,
+      context.text,
+    );
+  }
+
   private async handleWikiCommand(
     context: IncomingMessageContext,
     selectionKey: string,
@@ -2214,6 +2486,7 @@ export class CodexFeishuService {
       projectAlias,
       sessionId: session?.thread_id,
       runStatus: activeRun?.status,
+      runPhase: activeRun ? mapRunStatusToPhase(activeRun.status) : undefined,
       sessionCount,
       includeActions,
       rerunPayload: includeActions && session?.last_prompt && !activeRun
@@ -2562,6 +2835,16 @@ export class CodexFeishuService {
 
   private buildAcknowledgedRunReply(projectAlias: string, status: 'queued' | 'running', detail: string): string {
     return [`消息接收: success`, `处理状态: ${status}`, `项目: ${projectAlias}`, '', detail].join('\n');
+  }
+
+  private shouldRequireCommandConfirmation(command: ReturnType<typeof parseBridgeCommand>, isNaturalLanguageCommand: boolean): boolean {
+    if (!requiresCommandConfirmation(command)) {
+      return false;
+    }
+    if (isNaturalLanguageCommand && this.config.service.natural_language_command_confirmation) {
+      return true;
+    }
+    return command.kind === 'doc' || command.kind === 'task' || command.kind === 'base';
   }
 
   private buildQueuedStatusDetail(
@@ -3035,6 +3318,15 @@ export class CodexFeishuService {
       case 'cancel':
         await this.handleCancelCommand(context, selectionKey);
         return;
+      case 'doc':
+        await this.handleDocCommand(context, selectionKey, pending.command.action, pending.command.value, pending.command.extra);
+        return;
+      case 'task':
+        await this.handleTaskCommand(context, selectionKey, pending.command.action, pending.command.value);
+        return;
+      case 'base':
+        await this.handleBaseCommand(context, selectionKey, pending.command.action, pending.command.appToken, pending.command.tableId, pending.command.recordId, pending.command.value);
+        return;
       case 'session': {
         const sessionArgument = pending.command.action === 'adopt' ? pending.command.target : pending.command.threadId;
         await this.handleSessionCommand(context, selectionKey, pending.command.action, sessionArgument);
@@ -3166,6 +3458,7 @@ export class CodexFeishuService {
     title: string;
     body: string;
     runStatus: string;
+    runPhase?: string;
     runId?: string;
     replyToMessageId?: string;
     originalText?: string;
@@ -3178,6 +3471,7 @@ export class CodexFeishuService {
           summary: truncateForFeishuCard(this.sanitizeUserVisibleReply(input.body)),
           projectAlias: input.projectAlias,
           runStatus: input.runStatus,
+          runPhase: input.runPhase,
           includeActions: false,
         }),
         input.replyToMessageId,
@@ -3187,6 +3481,7 @@ export class CodexFeishuService {
         chat_id: input.chatId,
         project_alias: input.projectAlias,
         run_status: input.runStatus,
+        run_phase: input.runPhase,
         ...(input.runId ? { run_id: input.runId } : {}),
       });
       return response;
@@ -3197,6 +3492,7 @@ export class CodexFeishuService {
       chat_id: input.chatId,
       project_alias: input.projectAlias,
       run_status: input.runStatus,
+      run_phase: input.runPhase,
       ...(input.runId ? { run_id: input.runId } : {}),
     });
     return response;
@@ -3233,6 +3529,7 @@ export class CodexFeishuService {
       title: 'Codex 处理中',
       body,
       runStatus: 'running',
+      runPhase: '生成中',
       runId,
     });
     if (!updated) {
@@ -3242,6 +3539,7 @@ export class CodexFeishuService {
         title: 'Codex 处理中',
         body,
         runStatus: 'running',
+        runPhase: '生成中',
         runId,
         replyToMessageId: input.replyToMessageId,
         originalText: input.prompt,
@@ -3262,6 +3560,7 @@ export class CodexFeishuService {
     title: string;
     body: string;
     runStatus: 'success' | 'failure' | 'cancelled';
+    runPhase?: string;
     cardSummary: string;
     sessionId?: string;
   }): Promise<void> {
@@ -3271,6 +3570,7 @@ export class CodexFeishuService {
       title: input.title,
       body: input.body,
       runStatus: input.runStatus,
+      runPhase: input.runPhase,
       runId: input.runId,
       sessionKey: input.input.sessionKey,
       sessionId: input.sessionId,
@@ -3285,6 +3585,7 @@ export class CodexFeishuService {
       title: input.title,
       body: input.body,
       runStatus: input.runStatus,
+      runPhase: input.runPhase,
       runId: input.runId,
       replyToMessageId: input.input.replyToMessageId,
       originalText: input.input.prompt,
@@ -3298,6 +3599,7 @@ export class CodexFeishuService {
     title: string;
     body: string;
     runStatus: string;
+    runPhase?: string;
     runId: string;
     sessionKey?: string;
     sessionId?: string;
@@ -3319,6 +3621,7 @@ export class CodexFeishuService {
           projectAlias: input.projectAlias,
           sessionId: input.sessionId,
           runStatus: input.runStatus,
+          runPhase: input.runPhase,
           sessionCount: includeActions && input.sessionKey
             ? (await this.sessionStore.listProjectSessions(input.sessionKey, input.projectAlias)).length
             : undefined,
@@ -3362,6 +3665,7 @@ export class CodexFeishuService {
       project_alias: input.projectAlias,
       run_id: input.runId,
       run_status: input.runStatus,
+      run_phase: input.runPhase,
       reply_mode: target.mode,
     });
     await this.auditLog.append({
@@ -3369,6 +3673,7 @@ export class CodexFeishuService {
       chat_id: input.chatId,
       project_alias: input.projectAlias,
       run_status: input.runStatus,
+      run_phase: input.runPhase,
       run_id: input.runId,
       update: true,
     });
@@ -3511,6 +3816,47 @@ function formatAgeFromNow(isoTimestamp: string): string {
     return `${totalHours}h`;
   }
   return `${Math.floor(totalHours / 24)}d`;
+}
+
+function parseJsonObject(input: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(input) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('JSON payload must be an object.');
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(`JSON 解析失败: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function clampListLimit(input: string | undefined, fallback: number, max: number): number {
+  const parsed = Number(input ?? fallback);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(Math.trunc(parsed), max);
+}
+
+function mapRunStatusToPhase(status: RunState['status']): string {
+  switch (status) {
+    case 'queued':
+      return '排队中';
+    case 'running':
+      return '执行中';
+    case 'success':
+      return '已完成';
+    case 'failure':
+      return '失败';
+    case 'cancelled':
+      return '已取消';
+    case 'stale':
+      return '中断';
+    case 'orphaned':
+      return '恢复中';
+    default:
+      return status;
+  }
 }
 
 function replaceObject(target: Record<string, unknown>, next: Record<string, unknown>): void {

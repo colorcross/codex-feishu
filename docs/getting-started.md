@@ -244,6 +244,19 @@ allowed_group_ids = ["oc_group_1", "oc_group_2"]
 - `/admin config history`：查看最近 5 次配置快照
 - `/admin config rollback <id|latest>`：回滚配置快照
 
+飞书对象命令：
+
+- `/doc read <url|token>`：读取飞书文档纯文本摘要
+- `/doc create <title>`：创建飞书文档
+- `/task list [limit]`：列出最近任务
+- `/task get <task_guid>`：查看任务详情
+- `/task create <summary>`：创建任务
+- `/task complete <task_guid>`：完成任务
+- `/base tables <app_token>`：列出多维表格中的数据表
+- `/base records <app_token> <table_id> [limit]`：列出多维表格记录
+- `/base create <app_token> <table_id> <json>`：新建多维表格记录
+- `/base update <app_token> <table_id> <record_id> <json>`：更新多维表格记录
+
 探针与指标：
 
 - `/healthz`：进程活性和 HTTP 面是否正常
@@ -333,9 +346,10 @@ reply_mode = "text"
 
 - 用户发送消息后，桥接器会先回一条状态提示，明确显示 `消息接收` 和 `处理状态`
 - 同一轮运行的排队、进度和完成结果会优先回写到同一条飞书回复或卡片
+- 卡片和富文本状态会区分 `排队中`、`准备上下文`、`生成中`、`执行中`、`已完成`、`失败`、`已取消`
 - 用户可见回复默认隐藏内部 `运行:` 标识
 - 飞书里也支持高置信度自然语言命令，例如 `查看状态`、`切换到项目 repo-a`、`接管最新会话`
-- 对切项目、接管会话、取消运行、重启服务、修改配置这类自然语言命令，默认要求先回复 `确认`
+- 对切项目、接管会话、取消运行、重启服务、修改配置，以及文档/任务/Base 写入这类变更操作，默认要求先回复 `确认`
 
 ## 管理员入口
 

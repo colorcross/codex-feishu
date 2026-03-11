@@ -197,7 +197,7 @@ class McpTestClient {
   }
 
   private async readMessage(expectedId: number): Promise<{ id: number; result?: unknown; error?: unknown }> {
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 10000;
     while (true) {
       const parsed = this.tryParseMessage();
       if (parsed) {

@@ -6,6 +6,7 @@ export function buildStatusCard(input: {
   projectAlias: string;
   sessionId?: string;
   runStatus?: string;
+  runPhase?: string;
   sessionCount?: number;
   includeActions: boolean;
   rerunPayload?: Record<string, unknown>;
@@ -56,6 +57,7 @@ export function buildStatusCard(input: {
     `**项目**: ${input.projectAlias}`,
     input.sessionId ? `**会话**: ${input.sessionId}` : null,
     input.runStatus ? `**状态**: ${input.runStatus}` : null,
+    input.runPhase ? `**阶段**: ${input.runPhase}` : null,
     typeof input.sessionCount === 'number' ? `**已保存会话数**: ${input.sessionCount}` : null,
   ]
     .filter(Boolean)
@@ -86,6 +88,7 @@ export function buildMessageCard(input: {
   title: string;
   body: string;
   status?: string;
+  phase?: string;
   projectAlias?: string;
   sessionId?: string;
 }): Record<string, unknown> {
@@ -93,6 +96,7 @@ export function buildMessageCard(input: {
     input.projectAlias ? `**项目**: ${input.projectAlias}` : null,
     input.sessionId ? `**会话**: ${input.sessionId}` : null,
     input.status ? `**状态**: ${input.status}` : null,
+    input.phase ? `**阶段**: ${input.phase}` : null,
   ]
     .filter(Boolean)
     .join('\n');

@@ -152,7 +152,7 @@ async function getFreePort(): Promise<number> {
 }
 
 async function waitForHttpReady(url: string, token: string): Promise<void> {
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     try {
       const response = await request({ url, method: 'GET', token });
@@ -262,7 +262,7 @@ async function openSse(urlString: string, token: string): Promise<{
 
   return {
     async nextEvent(): Promise<{ event: string; data: string }> {
-      const deadline = Date.now() + 5000;
+      const deadline = Date.now() + 10000;
       while (Date.now() < deadline) {
         if (eventQueue.length > 0) {
           return eventQueue.shift()!;

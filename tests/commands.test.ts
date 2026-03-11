@@ -40,6 +40,29 @@ describe('bridge commands', () => {
     expect(parseBridgeCommand('/cancel')).toEqual({ kind: 'cancel' });
     expect(parseBridgeCommand('/kb status')).toEqual({ kind: 'kb', action: 'status' });
     expect(parseBridgeCommand('/kb search install')).toEqual({ kind: 'kb', action: 'search', query: 'install' });
+    expect(parseBridgeCommand('/doc read doxcn123')).toEqual({ kind: 'doc', action: 'read', value: 'doxcn123' });
+    expect(parseBridgeCommand('/doc create 发布说明')).toEqual({ kind: 'doc', action: 'create', value: '发布说明' });
+    expect(parseBridgeCommand('/task list 5')).toEqual({ kind: 'task', action: 'list', value: '5' });
+    expect(parseBridgeCommand('/task get task-guid-1')).toEqual({ kind: 'task', action: 'get', value: 'task-guid-1' });
+    expect(parseBridgeCommand('/task create 修复线上告警')).toEqual({ kind: 'task', action: 'create', value: '修复线上告警' });
+    expect(parseBridgeCommand('/task complete task-guid-1')).toEqual({ kind: 'task', action: 'complete', value: 'task-guid-1' });
+    expect(parseBridgeCommand('/base tables app123')).toEqual({ kind: 'base', action: 'tables', appToken: 'app123' });
+    expect(parseBridgeCommand('/base records app123 tbl123 5')).toEqual({ kind: 'base', action: 'records', appToken: 'app123', tableId: 'tbl123', value: '5' });
+    expect(parseBridgeCommand('/base create app123 tbl123 {\"标题\":\"发布\"}')).toEqual({
+      kind: 'base',
+      action: 'create',
+      appToken: 'app123',
+      tableId: 'tbl123',
+      value: '{"标题":"发布"}',
+    });
+    expect(parseBridgeCommand('/base update app123 tbl123 rec123 {\"状态\":\"完成\"}')).toEqual({
+      kind: 'base',
+      action: 'update',
+      appToken: 'app123',
+      tableId: 'tbl123',
+      recordId: 'rec123',
+      value: '{"状态":"完成"}',
+    });
     expect(parseBridgeCommand('/memory status')).toEqual({ kind: 'memory', action: 'status' });
     expect(parseBridgeCommand('/memory stats')).toEqual({ kind: 'memory', action: 'stats' });
     expect(parseBridgeCommand('/memory status group')).toEqual({ kind: 'memory', action: 'status', scope: 'group' });
@@ -153,6 +176,9 @@ describe('bridge commands', () => {
 
   it('supports high-confidence natural language commands', () => {
     expect(parseBridgeCommand('查看状态')).toEqual({ kind: 'status' });
+    expect(parseBridgeCommand('读取文档 doxcn123')).toEqual({ kind: 'doc', action: 'read', value: 'doxcn123' });
+    expect(parseBridgeCommand('创建任务 修复线上告警')).toEqual({ kind: 'task', action: 'create', value: '修复线上告警' });
+    expect(parseBridgeCommand('完成任务 task-guid-1')).toEqual({ kind: 'task', action: 'complete', value: 'task-guid-1' });
     expect(parseBridgeCommand('查看详细状态')).toEqual({ kind: 'status', detail: true });
     expect(parseBridgeCommand('项目列表')).toEqual({ kind: 'projects' });
     expect(parseBridgeCommand('新会话')).toEqual({ kind: 'new' });
@@ -197,6 +223,9 @@ describe('bridge commands', () => {
     expect(helpText).toContain('/admin service restart');
     expect(helpText).toContain('/cancel');
     expect(helpText).toContain('/kb search');
+    expect(helpText).toContain('/doc create');
+    expect(helpText).toContain('/task create');
+    expect(helpText).toContain('/base create');
     expect(helpText).toContain('/memory status');
     expect(helpText).toContain('/memory stats');
     expect(helpText).toContain('/memory status group');

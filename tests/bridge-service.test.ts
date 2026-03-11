@@ -172,6 +172,14 @@ describe('bridge service', () => {
     expect(setup.restart).toHaveBeenCalledTimes(1);
   });
 
+  it('requires confirmation before executing a slash write command for Feishu objects', async () => {
+    const setup = await createService();
+
+    await setup.service.handleIncomingMessage(buildMessage('/task create 修复线上告警', { message_id: 'm-task-create' }));
+
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('请在 90 秒内回复“确认”继续');
+  });
+
   it('uses Feishu cards for generic replies when reply_mode=card', async () => {
     const setup = await createService({
       service: {

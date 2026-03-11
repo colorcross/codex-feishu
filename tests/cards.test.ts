@@ -8,6 +8,7 @@ describe('status card', () => {
       summary: 'Summary',
       projectAlias: 'repo-a',
       sessionId: 'thread-1',
+      runPhase: '执行中',
       includeActions: true,
       rerunPayload: { action: 'rerun' },
       newSessionPayload: { action: 'new' },
@@ -17,6 +18,7 @@ describe('status card', () => {
     expect(card.header).toBeTruthy();
     expect(Array.isArray(card.elements)).toBe(true);
     expect(JSON.stringify(card)).toContain('重试上一轮');
+    expect(JSON.stringify(card)).toContain('执行中');
   });
 
   it('builds generic message cards from markdown body', () => {

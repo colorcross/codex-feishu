@@ -17,6 +17,9 @@ export type BridgeCommand =
   | { kind: 'new' }
   | { kind: 'cancel' }
   | { kind: 'kb'; action: 'search' | 'status'; query?: string }
+  | { kind: 'doc'; action: 'read' | 'create'; value?: string; extra?: string }
+  | { kind: 'task'; action: 'list' | 'get' | 'create' | 'complete'; value?: string; extra?: string }
+  | { kind: 'base'; action: 'tables' | 'records' | 'create' | 'update'; appToken?: string; tableId?: string; recordId?: string; value?: string; extra?: string }
   | { kind: 'memory'; action: 'status' | 'stats' | 'search' | 'recent' | 'save' | 'pin' | 'unpin' | 'forget' | 'restore'; scope?: MemoryScopeTarget; value?: string; filters?: MemoryCommandFilters }
   | { kind: 'wiki'; action: 'spaces' | 'search' | 'read' | 'create' | 'rename' | 'copy' | 'move' | 'members' | 'grant' | 'revoke'; value?: string; extra?: string; target?: string; role?: string }
   | { kind: 'project'; alias?: string }
@@ -55,6 +58,12 @@ export function parseBridgeCommand(input: string): BridgeCommand {
       return { kind: 'cancel' };
     case '/kb':
       return parseKnowledgeCommand(argument);
+    case '/doc':
+      return parseDocCommand(argument);
+    case '/task':
+      return parseTaskCommand(argument);
+    case '/base':
+      return parseBaseCommand(argument);
     case '/memory':
       return parseMemoryCommand(argument);
     case '/wiki':
@@ -103,6 +112,16 @@ export function buildHelpText(): string {
     '知识与记忆',
     '/kb status 查看当前项目知识库目录',
     '/kb search <query> 搜索项目文档/知识库',
+    '/doc read <url|token> 读取飞书文档纯文本摘要',
+    '/doc create <title> 创建一篇飞书文档',
+    '/task list [limit] 列出最近任务',
+    '/task get <task_guid> 查看任务详情',
+    '/task create <summary> 创建任务',
+    '/task complete <task_guid> 完成任务',
+    '/base tables <app_token> 列出多维表格中的数据表',
+    '/base records <app_token> <table_id> [limit] 列出多维表格记录',
+    '/base create <app_token> <table_id> <json> 新建多维表格记录',
+    '/base update <app_token> <table_id> <record_id> <json> 更新多维表格记录',
     '/memory status 查看当前项目记忆状态',
     '/memory stats 查看当前项目记忆统计',
     '/memory status group 查看当前群共享记忆状态',
@@ -198,6 +217,12 @@ export function describeBridgeCommand(command: BridgeCommand): string {
       return '取消当前运行';
     case 'kb':
       return command.action === 'search' ? `搜索知识库: ${command.query ?? ''}`.trim() : '查看知识库状态';
+    case 'doc':
+      return `文档操作: ${command.action}${command.value ? ` ${command.value}` : ''}`;
+    case 'task':
+      return `任务操作: ${command.action}${command.value ? ` ${command.value}` : ''}`;
+    case 'base':
+      return `多维表格操作: ${command.action}${command.appToken ? ` ${command.appToken}` : ''}`;
     case 'memory':
       return `记忆操作: ${command.action}`;
     case 'wiki':
@@ -229,6 +254,12 @@ export function requiresCommandConfirmation(command: BridgeCommand): boolean {
       return true;
     case 'project':
       return Boolean(command.alias);
+    case 'doc':
+      return command.action === 'create';
+    case 'task':
+      return command.action === 'create' || command.action === 'complete';
+    case 'base':
+      return command.action === 'create' || command.action === 'update';
     case 'session':
       return command.action === 'use' || command.action === 'new' || command.action === 'drop' || command.action === 'adopt';
     case 'admin':
@@ -291,6 +322,18 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
   }
   if (/^(取消当前任务|停止当前任务|取消运行|停止运行|停止任务)$/.test(normalized)) {
     return { kind: 'cancel' };
+  }
+  if (/^(查看文档|读取文档)\s+(\S+)$/.test(normalized)) {
+    const match = normalized.match(/^(?:查看文档|读取文档)\s+(\S+)$/);
+    return match?.[1] ? { kind: 'doc', action: 'read', value: match[1] } : null;
+  }
+  if (/^创建任务\s+(.+)$/.test(normalized)) {
+    const match = normalized.match(/^创建任务\s+(.+)$/);
+    return match?.[1] ? { kind: 'task', action: 'create', value: match[1].trim() } : null;
+  }
+  if (/^完成任务\s+(\S+)$/.test(normalized)) {
+    const match = normalized.match(/^完成任务\s+(\S+)$/);
+    return match?.[1] ? { kind: 'task', action: 'complete', value: match[1] } : null;
   }
   if (/^(查看会话|会话列表|列出会话)$/.test(normalized)) {
     return { kind: 'session', action: 'list' };
@@ -490,6 +533,68 @@ function parseKnowledgeCommand(argument: string): BridgeCommand {
       return { kind: 'kb', action: 'search', query };
     default:
       return { kind: 'prompt', prompt: `/kb${argument ? ` ${argument}` : ''}`.trim() };
+  }
+}
+
+function parseDocCommand(argument: string): BridgeCommand {
+  const [subcommand, ...rest] = argument.split(/\s+/).filter(Boolean);
+  const value = rest.join(' ').trim() || undefined;
+
+  switch (subcommand) {
+    case 'read':
+      return { kind: 'doc', action: 'read', value };
+    case 'create':
+      return { kind: 'doc', action: 'create', value };
+    default:
+      return { kind: 'prompt', prompt: `/doc${argument ? ` ${argument}` : ''}`.trim() };
+  }
+}
+
+function parseTaskCommand(argument: string): BridgeCommand {
+  const [subcommand, ...rest] = argument.split(/\s+/).filter(Boolean);
+  const value = rest.join(' ').trim() || undefined;
+
+  switch (subcommand) {
+    case 'list':
+      return { kind: 'task', action: 'list', value };
+    case 'get':
+      return { kind: 'task', action: 'get', value };
+    case 'create':
+      return { kind: 'task', action: 'create', value };
+    case 'complete':
+      return { kind: 'task', action: 'complete', value };
+    default:
+      return { kind: 'prompt', prompt: `/task${argument ? ` ${argument}` : ''}`.trim() };
+  }
+}
+
+function parseBaseCommand(argument: string): BridgeCommand {
+  const [subcommand, ...rest] = argument.split(/\s+/).filter(Boolean);
+
+  switch (subcommand) {
+    case 'tables':
+      return { kind: 'base', action: 'tables', appToken: rest[0] };
+    case 'records':
+      return { kind: 'base', action: 'records', appToken: rest[0], tableId: rest[1], value: rest[2] };
+    case 'create':
+      return {
+        kind: 'base',
+        action: 'create',
+        appToken: rest[0],
+        tableId: rest[1],
+        value: rest.slice(2).join(' ').trim() || undefined,
+      };
+    case 'update':
+      return {
+        kind: 'base',
+        action: 'update',
+        appToken: rest[0],
+        tableId: rest[1],
+        recordId: rest[2],
+        value: rest.slice(3).join(' ').trim() || undefined,
+      };
+    default:
+      return { kind: 'prompt', prompt: `/base${argument ? ` ${argument}` : ''}`.trim() };
   }
 }
 
