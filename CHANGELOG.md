@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.1.6 - 2026-03-11
+
+### Highlights
+
+- 官网模块标题和说明文案改为用户视角，移除“这轮迭代”“首页应该反映”这类内部叙事。
+- 首页现在更直接聚焦项目做什么、为什么适合真实团队使用，以及用户下一步该怎么开始。
+- 中英文页面的 How it works / Capabilities / Quick Start / Docs / CTA 文案已同步收口。
+
+### Included
+
+- 官网：
+  - `website/index.html`
+  - `website/en.html`
+
+### Verification
+
+- 本地静态预览检查通过（中文页 / 英文页）
+
 ## v0.1.5 - 2026-03-11
 
 ### Highlights
