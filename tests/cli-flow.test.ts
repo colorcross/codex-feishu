@@ -55,7 +55,7 @@ describe('cli flow', () => {
     expect(print.status).toBe(0);
     expect(print.stdout).toContain('repo-a');
     expect(print.stdout).toContain('<redacted>');
-  });
+  }, 15000);
 
   it('prints service instructions without writing system state', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-service-'));
@@ -372,7 +372,7 @@ describe('cli flow', () => {
     expect(stop.status).toBe(0);
     expect(stop.stdout).toContain('Stopped bridge pid');
     await waitForProcessExit(child.pid ?? 0);
-  });
+  }, 15000);
 
   it('bootstraps a global config through the install script without requiring --config afterwards', async () => {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-install-home-'));

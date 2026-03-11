@@ -5,7 +5,7 @@ export interface MemoryCommandFilters {
   created_by?: string;
 }
 
-export type AdminResource = 'admin' | 'group' | 'chat' | 'project' | 'service' | 'config';
+export type AdminResource = 'viewer' | 'operator' | 'admin' | 'group' | 'chat' | 'project' | 'service' | 'config';
 export type AdminListAction = 'status' | 'list' | 'add' | 'remove';
 export type AdminProjectAction = 'add' | 'remove' | 'set' | 'list';
 export type AdminConfigAction = 'history' | 'rollback';
@@ -143,6 +143,12 @@ export function buildHelpText(): string {
     '',
     '管理员',
     '/admin status 查看管理员配置摘要',
+    '/admin viewer list 查看全局 viewer chat_id 列表',
+    '/admin viewer add <chat_id> 添加全局 viewer chat_id',
+    '/admin viewer remove <chat_id> 移除全局 viewer chat_id',
+    '/admin operator list 查看全局 operator chat_id 列表',
+    '/admin operator add <chat_id> 添加全局 operator chat_id',
+    '/admin operator remove <chat_id> 移除全局 operator chat_id',
     '/admin runs 查看所有 active/queued 运行及最近失败',
     '/admin admin list 查看管理员 chat_id 列表',
     '/admin admin add <chat_id> 添加管理员 chat_id',
@@ -423,7 +429,7 @@ function parseAdminCommand(argument: string): BridgeCommand {
     return { kind: 'prompt', prompt: `/admin${argument ? ` ${argument}` : ''}`.trim() };
   }
 
-  if (resource === 'admin' || resource === 'group' || resource === 'chat') {
+  if (resource === 'viewer' || resource === 'operator' || resource === 'admin' || resource === 'group' || resource === 'chat') {
     if (action === 'list' || !action) {
       return { kind: 'admin', resource, action: 'list' };
     }

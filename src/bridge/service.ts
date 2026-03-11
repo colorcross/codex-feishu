@@ -30,13 +30,15 @@ import { resolveMessageResources } from '../feishu/message-resource.js';
 import { MemoryStore } from '../state/memory-store.js';
 import { retrieveMemoryContext, type MemoryContext } from '../memory/retrieve.js';
 import { summarizeThreadTurn } from '../memory/summarize.js';
-import { CodexSessionIndex, renderSessionMatchLabel, type IndexedCodexSession } from '../codex/session-index.js';
+import { CodexSessionIndex } from '../codex/session-index.js';
 import { bindProjectAlias, removeProjectAlias, updateProjectConfig, updateStringList } from '../config/mutate.js';
 import { buildFeishuPost, truncateForFeishuCard } from '../feishu/text.js';
 import { ConfigHistoryStore, type ConfigSnapshot } from '../state/config-history-store.js';
 import { loadBridgeConfig } from '../config/load.js';
 import { writeUtf8Atomic } from '../utils/fs.js';
 import { PendingCommandStore, type PendingCommandRecord } from '../state/pending-command-store.js';
+import { canAccessProject, describeMinimumRole, filterAccessibleProjects, resolveProjectAccessRole, type AccessRole } from '../security/access.js';
+import { adoptProjectSession as adoptSharedProjectSession, listBridgeSessions as listSharedBridgeSessions, switchProjectBinding as switchSharedProjectBinding } from '../control-plane/project-session.js';
 
 interface ActiveRunHandle {
   runId: string;
@@ -224,126 +226,149 @@ export class CodexFeishuService {
       return;
     }
 
-    switch (command.kind) {
-      case 'help':
-        await this.sendTextReply(context.chat_id, buildHelpText(), context.message_id, context.text);
-        return;
-      case 'projects':
-        await this.sendTextReply(context.chat_id, await this.buildProjectsText(selectionKey), context.message_id, context.text);
-        return;
-      case 'project':
-        await this.handleProjectCommand(context, selectionKey, command.alias);
-        return;
-      case 'status':
-        await this.handleStatusCommand(context, selectionKey, command.detail === true);
-        return;
-      case 'new':
-        await this.handleNewCommand(context, selectionKey);
-        return;
-      case 'cancel':
-        await this.handleCancelCommand(context, selectionKey);
-        return;
-      case 'kb':
-        await this.handleKnowledgeCommand(context, selectionKey, command.action, command.query);
-        return;
-      case 'memory':
-        await this.handleMemoryCommand(context, selectionKey, command.action, command.scope, command.value, command.filters);
-        return;
-      case 'wiki':
-        await this.handleWikiCommand(context, selectionKey, command.action, command.value, command.extra, command.target, command.role);
-        return;
-      case 'session':
-        const sessionArgument = command.action === 'adopt' ? command.target : command.threadId;
-        await this.handleSessionCommand(
-          context,
-          selectionKey,
-          command.action,
-          sessionArgument,
-        );
-        return;
-      case 'admin':
-        await this.handleAdminCommand(context, selectionKey, command);
-        return;
-      case 'prompt': {
-        const prompt = normalizeIncomingText(command.prompt) || (context.attachments.length > 0 ? '请结合这条飞书消息附带的多媒体信息继续处理。' : '');
-        if (!prompt) {
+    try {
+      switch (command.kind) {
+        case 'help':
+          await this.sendTextReply(context.chat_id, buildHelpText(), context.message_id, context.text);
           return;
-        }
-        const projectContext = await this.resolveProjectContext(context, selectionKey);
-        const resolvedContext = await resolveMessageResources(
-          this.feishuClient.createSdkClient?.(),
-          this.resolveProjectDownloadDir(projectContext.project),
-          context,
-          {
-            downloadEnabled: this.config.service.download_message_resources,
-            transcribeAudio: this.config.service.transcribe_audio_messages,
-            transcribeCliPath: this.config.service.transcribe_cli_path,
-            describeImages: this.config.service.describe_image_messages,
-            openaiImageModel: this.config.service.openai_image_model,
-            logger: this.logger,
-          },
-        );
-        if (context.chat_type === 'group' && this.shouldRequireMention(projectContext.project) && context.mentions.length === 0) {
+        case 'projects':
+          await this.sendTextReply(context.chat_id, await this.buildProjectsText(selectionKey, context.chat_id), context.message_id, context.text);
           return;
-        }
-        const rateLimitMessage = this.checkAndConsumeChatRateLimit(projectContext.projectAlias, projectContext.project, context.chat_id);
-        if (rateLimitMessage) {
-          await this.sendTextReply(context.chat_id, rateLimitMessage, context.message_id, context.text);
+        case 'project':
+          await this.handleProjectCommand(context, selectionKey, command.alias);
           return;
-        }
-        await this.sessionStore.selectProject(selectionKey, projectContext.projectAlias);
+        case 'status':
+          await this.handleStatusCommand(context, selectionKey, command.detail === true);
+          return;
+        case 'new':
+          await this.handleNewCommand(context, selectionKey);
+          return;
+        case 'cancel':
+          await this.handleCancelCommand(context, selectionKey);
+          return;
+        case 'kb':
+          await this.handleKnowledgeCommand(context, selectionKey, command.action, command.query);
+          return;
+        case 'memory':
+          await this.handleMemoryCommand(context, selectionKey, command.action, command.scope, command.value, command.filters);
+          return;
+        case 'wiki':
+          await this.handleWikiCommand(context, selectionKey, command.action, command.value, command.extra, command.target, command.role);
+          return;
+        case 'session':
+          const sessionArgument = command.action === 'adopt' ? command.target : command.threadId;
+          await this.handleSessionCommand(
+            context,
+            selectionKey,
+            command.action,
+            sessionArgument,
+          );
+          return;
+        case 'admin':
+          await this.handleAdminCommand(context, selectionKey, command);
+          return;
+        case 'prompt': {
+          const prompt = normalizeIncomingText(command.prompt) || (context.attachments.length > 0 ? '请结合这条飞书消息附带的多媒体信息继续处理。' : '');
+          if (!prompt) {
+            return;
+          }
+          const projectContext = await this.resolveProjectContext(context, selectionKey);
+          if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, 'operator')) {
+            await this.sendTextReply(
+              context.chat_id,
+              `当前 chat_id 只有 ${resolveProjectAccessRole(this.config, projectContext.projectAlias, context.chat_id) ?? '未授权'} 权限，执行运行至少需要 ${describeMinimumRole('operator')} 权限。`,
+              context.message_id,
+              context.text,
+            );
+            return;
+          }
+          const resolvedContext = await resolveMessageResources(
+            this.feishuClient.createSdkClient?.(),
+            this.resolveProjectDownloadDir(projectContext.project),
+            context,
+            {
+              downloadEnabled: this.config.service.download_message_resources,
+              transcribeAudio: this.config.service.transcribe_audio_messages,
+              transcribeCliPath: this.config.service.transcribe_cli_path,
+              describeImages: this.config.service.describe_image_messages,
+              openaiImageModel: this.config.service.openai_image_model,
+              logger: this.logger,
+            },
+          );
+          if (context.chat_type === 'group' && this.shouldRequireMention(projectContext.project) && context.mentions.length === 0) {
+            return;
+          }
+          const rateLimitMessage = this.checkAndConsumeChatRateLimit(projectContext.projectAlias, projectContext.project, context.chat_id);
+          if (rateLimitMessage) {
+            await this.sendTextReply(context.chat_id, rateLimitMessage, context.message_id, context.text);
+            return;
+          }
+          await this.sessionStore.selectProject(selectionKey, projectContext.projectAlias);
 
-        const scheduled = await this.scheduleProjectExecution(
-          projectContext,
-          {
-            chatId: context.chat_id,
-            actorId: context.actor_id,
-            prompt,
-          },
-          async (runId) => {
-            await this.executePrompt({
-              runId,
+          const scheduled = await this.scheduleProjectExecution(
+            projectContext,
+            {
               chatId: context.chat_id,
               actorId: context.actor_id,
-              tenantKey: context.tenant_key,
-              projectAlias: projectContext.projectAlias,
-              project: projectContext.project,
               prompt,
-              incomingMessage: resolvedContext,
-              sessionKey: projectContext.sessionKey,
-              queueKey: projectContext.queueKey,
-              replyToMessageId: context.message_id,
-            });
-          },
-        );
-        try {
-          const initialReply = scheduled.queued
-            ? await this.sendRunLifecycleReply({
+            },
+            async (runId) => {
+              await this.executePrompt({
+                runId,
                 chatId: context.chat_id,
+                actorId: context.actor_id,
+                tenantKey: context.tenant_key,
                 projectAlias: projectContext.projectAlias,
-                title: '已加入排队',
-                body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'queued', scheduled.queued.detail),
-                runStatus: 'queued',
-                runId: scheduled.runId,
+                project: projectContext.project,
+                prompt,
+                incomingMessage: resolvedContext,
+                sessionKey: projectContext.sessionKey,
+                queueKey: projectContext.queueKey,
                 replyToMessageId: context.message_id,
-                originalText: context.text,
-              })
-            : await this.sendRunLifecycleReply({
-                chatId: context.chat_id,
-                projectAlias: projectContext.projectAlias,
-                title: 'Codex 处理中',
-                body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'running', '已收到消息，正在处理。'),
-                runStatus: 'running',
-                runId: scheduled.runId,
-                replyToMessageId: context.message_id,
-                originalText: context.text,
               });
-          await this.rememberRunReplyTarget(scheduled.runId, initialReply);
-        } finally {
-          scheduled.release();
+            },
+          );
+          try {
+            const initialReply = scheduled.queued
+              ? await this.sendRunLifecycleReply({
+                  chatId: context.chat_id,
+                  projectAlias: projectContext.projectAlias,
+                  title: '已加入排队',
+                  body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'queued', scheduled.queued.detail),
+                  runStatus: 'queued',
+                  runId: scheduled.runId,
+                  replyToMessageId: context.message_id,
+                  originalText: context.text,
+                })
+              : await this.sendRunLifecycleReply({
+                  chatId: context.chat_id,
+                  projectAlias: projectContext.projectAlias,
+                  title: 'Codex 处理中',
+                  body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'running', '已收到消息，正在处理。'),
+                  runStatus: 'running',
+                  runId: scheduled.runId,
+                  replyToMessageId: context.message_id,
+                  originalText: context.text,
+                });
+            await this.rememberRunReplyTarget(scheduled.runId, initialReply);
+          } finally {
+            scheduled.release();
+          }
+          await scheduled.completion;
         }
-        await scheduled.completion;
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error({ error, chatId: context.chat_id, actorId: context.actor_id, command: command.kind }, 'Failed to handle incoming message');
+      await this.auditLog.append({
+        type: 'message.failed',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        command: command.kind,
+        error: message,
+        message_id: context.message_id,
+      });
+      await this.sendTextReply(context.chat_id, `处理失败:\n${message}`, context.message_id, context.text);
     }
   }
 
@@ -782,77 +807,60 @@ export class CodexFeishuService {
   private async handleProjectCommand(context: IncomingMessageContext, selectionKey: string, alias?: string): Promise<void> {
     if (!alias) {
       const currentAlias = await this.resolveProjectAlias(selectionKey);
+      if (!canAccessProject(this.config, currentAlias, context.chat_id, 'viewer')) {
+        await this.sendTextReply(
+          context.chat_id,
+          `当前 chat_id 无权查看项目 ${currentAlias}。至少需要 ${describeMinimumRole('viewer')} 权限。`,
+          context.message_id,
+          context.text,
+        );
+        return;
+      }
       const project = this.requireProject(currentAlias);
       await this.sendTextReply(context.chat_id, `当前项目: ${currentAlias}${project.description ? `\n说明: ${project.description}` : ''}`, context.message_id, context.text);
       return;
     }
 
+    if (!canAccessProject(this.config, alias, context.chat_id, 'viewer')) {
+      await this.sendTextReply(
+        context.chat_id,
+        `当前 chat_id 无权切换到项目 ${alias}。至少需要 ${describeMinimumRole('viewer')} 权限。`,
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
     const project = this.requireProject(alias);
-    await this.sessionStore.ensureConversation(selectionKey, {
-      chat_id: context.chat_id,
-      actor_id: context.actor_id,
-      tenant_key: context.tenant_key,
-      scope: this.getSelectionScope(context),
-    });
-    await this.sessionStore.selectProject(selectionKey, alias);
+    const switched = await switchSharedProjectBinding(
+      this.config,
+      this.sessionStore,
+      this.codexSessionIndex,
+      {
+        chatId: context.chat_id,
+        actorId: context.actor_id,
+        tenantKey: context.tenant_key,
+      },
+      alias,
+    );
     await this.auditLog.append({
       type: 'project.selected',
       chat_id: context.chat_id,
       actor_id: context.actor_id,
       project_alias: alias,
     });
-    const replyLines = [`已切换到项目: ${alias}${project.description ? `\n说明: ${project.description}` : ''}`];
-    if (this.config.service.project_switch_auto_adopt_latest) {
-      const projectContext = await this.resolveProjectContext(context, selectionKey);
-      const adoption = await this.tryAutoAdoptLatestSessionForProject(projectContext);
-      if (adoption.kind === 'existing') {
-        replyLines.push(`已保留当前聊天下该项目的会话: ${adoption.threadId}`);
-      } else if (adoption.kind === 'adopted') {
-        replyLines.push(`已自动接管本地 Codex 会话: ${adoption.session.threadId}`);
-        replyLines.push(`match: ${renderSessionMatch(adoption.session)}`);
-        replyLines.push(`source cwd: ${adoption.session.cwd}`);
-      } else {
-        replyLines.push('未找到可自动接管的本地 Codex 会话。下一条消息会新开会话。');
-      }
+    if (switched.structured.autoAdoption.kind === 'adopted') {
+      await this.auditLog.append({
+        type: 'session.adopted',
+        project_alias: alias,
+        conversation_key: switched.structured.sessionKey,
+        thread_id: switched.structured.autoAdoption.session.threadId,
+        source_cwd: switched.structured.autoAdoption.session.cwd,
+        source: switched.structured.autoAdoption.session.source,
+        match_kind: switched.structured.autoAdoption.session.matchKind,
+        trigger: 'project-switch',
+      });
     }
-    await this.sendTextReply(context.chat_id, replyLines.join('\n'), context.message_id, context.text);
-  }
-
-  private async tryAutoAdoptLatestSessionForProject(projectContext: {
-    projectAlias: string;
-    project: ProjectConfig;
-    sessionKey: string;
-    queueKey: string;
-  }): Promise<
-    | { kind: 'existing'; threadId: string }
-    | { kind: 'adopted'; session: IndexedCodexSession }
-    | { kind: 'missing' }
-  > {
-    const conversation = await this.sessionStore.getConversation(projectContext.sessionKey);
-    const existingThreadId = conversation?.projects[projectContext.projectAlias]?.thread_id;
-    if (existingThreadId) {
-      return { kind: 'existing', threadId: existingThreadId };
-    }
-
-    const adopted = await this.codexSessionIndex.findLatestProjectSession(projectContext.project.root);
-    if (!adopted) {
-      return { kind: 'missing' };
-    }
-
-    await this.sessionStore.upsertProjectSession(projectContext.sessionKey, projectContext.projectAlias, {
-      thread_id: adopted.threadId,
-    });
-    await this.auditLog.append({
-      type: 'session.adopted',
-      project_alias: projectContext.projectAlias,
-      conversation_key: projectContext.sessionKey,
-      thread_id: adopted.threadId,
-      source_cwd: adopted.cwd,
-      source: adopted.source,
-      match_kind: adopted.matchKind,
-      trigger: 'project-switch',
-    });
-    return { kind: 'adopted', session: adopted };
+    await this.sendTextReply(context.chat_id, switched.text, context.message_id, context.text);
   }
 
   private async handleStatusCommand(context: IncomingMessageContext, selectionKey: string, detail: boolean = false): Promise<void> {
@@ -881,6 +889,15 @@ export class CodexFeishuService {
 
   private async handleNewCommand(context: IncomingMessageContext, selectionKey: string): Promise<void> {
     const projectContext = await this.resolveProjectContext(context, selectionKey);
+    if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, 'operator')) {
+      await this.sendTextReply(
+        context.chat_id,
+        `当前 chat_id 无权为项目 ${projectContext.projectAlias} 新开会话。至少需要 ${describeMinimumRole('operator')} 权限。`,
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
     await this.sessionStore.clearActiveProjectSession(projectContext.sessionKey, projectContext.projectAlias);
     await this.auditLog.append({
       type: 'session.reset',
@@ -894,6 +911,15 @@ export class CodexFeishuService {
 
   private async handleCancelCommand(context: IncomingMessageContext, selectionKey: string): Promise<void> {
     const projectContext = await this.resolveProjectContext(context, selectionKey);
+    if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, 'operator')) {
+      await this.sendTextReply(
+        context.chat_id,
+        `当前 chat_id 无权取消项目 ${projectContext.projectAlias} 的运行。至少需要 ${describeMinimumRole('operator')} 权限。`,
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
     const cancelled = await this.cancelActiveRun(projectContext.queueKey, 'user');
     await this.sendTextReply(
       context.chat_id,
@@ -915,23 +941,25 @@ export class CodexFeishuService {
 
     switch (action) {
       case 'list': {
-        if (sessions.length === 0) {
-          await this.sendTextReply(context.chat_id, `项目 ${projectContext.projectAlias} 还没有保存的会话。`, context.message_id, context.text);
-          return;
-        }
-        const lines = sessions.map((session, index) => {
-          const prefix = session.thread_id === activeSessionId ? '*' : `${index + 1}.`;
-          return `${prefix} ${session.thread_id} (${session.updated_at})${session.last_response_excerpt ? `\n   ${truncateExcerpt(session.last_response_excerpt, 80)}` : ''}`;
+        const listing = await listSharedBridgeSessions(this.config, this.sessionStore, {
+          chatId: context.chat_id,
+          actorId: context.actor_id,
+          tenantKey: context.tenant_key,
+          projectAlias: projectContext.projectAlias,
         });
-        await this.sendTextReply(
-          context.chat_id,
-          [`项目: ${projectContext.projectAlias}`, `当前会话: ${activeSessionId ?? '未选择'}`, '', ...lines].join('\n'),
-          context.message_id,
-          context.text,
-        );
+        await this.sendTextReply(context.chat_id, listing.text, context.message_id, context.text);
         return;
       }
       case 'use': {
+        if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, 'operator')) {
+          await this.sendTextReply(
+            context.chat_id,
+            `当前 chat_id 无权切换项目 ${projectContext.projectAlias} 的会话。至少需要 ${describeMinimumRole('operator')} 权限。`,
+            context.message_id,
+            context.text,
+          );
+          return;
+        }
         if (!threadId) {
           await this.sendTextReply(context.chat_id, '用法: /session use <thread_id>', context.message_id, context.text);
           return;
@@ -941,11 +969,29 @@ export class CodexFeishuService {
         return;
       }
       case 'new': {
+        if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, 'operator')) {
+          await this.sendTextReply(
+            context.chat_id,
+            `当前 chat_id 无权为项目 ${projectContext.projectAlias} 新开会话。至少需要 ${describeMinimumRole('operator')} 权限。`,
+            context.message_id,
+            context.text,
+          );
+          return;
+        }
         await this.sessionStore.clearActiveProjectSession(projectContext.sessionKey, projectContext.projectAlias);
         await this.sendTextReply(context.chat_id, '已切换为新会话模式。下一条消息会新开会话。', context.message_id, context.text);
         return;
       }
       case 'drop': {
+        if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, 'operator')) {
+          await this.sendTextReply(
+            context.chat_id,
+            `当前 chat_id 无权删除项目 ${projectContext.projectAlias} 的会话。至少需要 ${describeMinimumRole('operator')} 权限。`,
+            context.message_id,
+            context.text,
+          );
+          return;
+        }
         const targetThreadId = threadId ?? activeSessionId;
         if (!targetThreadId) {
           await this.sendTextReply(context.chat_id, '没有可删除的会话。', context.message_id, context.text);
@@ -956,6 +1002,15 @@ export class CodexFeishuService {
         return;
       }
       case 'adopt': {
+        if (!canAccessProject(this.config, projectContext.projectAlias, context.chat_id, 'operator')) {
+          await this.sendTextReply(
+            context.chat_id,
+            `当前 chat_id 无权接管项目 ${projectContext.projectAlias} 的会话。至少需要 ${describeMinimumRole('operator')} 权限。`,
+            context.message_id,
+            context.text,
+          );
+          return;
+        }
         await this.handleSessionAdoptCommand(context, projectContext, threadId);
         return;
       }
@@ -970,15 +1025,16 @@ export class CodexFeishuService {
     const runtimeConfigPath = this.runtimeControl?.configPath;
     const currentProjectAlias = await this.resolveProjectAlias(selectionKey);
     const globalAdmin = this.isAdminChat(context.chat_id);
-    const projectAdminAliases = this.getAuthorizedProjectAliases(context.chat_id);
+    const projectAdminAliases = this.getAuthorizedProjectAliases(context.chat_id, 'admin');
+    const projectOperatorAliases = this.getAuthorizedProjectAliases(context.chat_id, 'operator');
     const canAccess =
       globalAdmin ||
-      this.canAccessAdminCommand(command, currentProjectAlias, projectAdminAliases);
+      this.canAccessAdminCommand(command, currentProjectAlias, projectAdminAliases, projectOperatorAliases);
 
     if (!canAccess) {
       await this.sendTextReply(
         context.chat_id,
-        '当前 chat_id 没有管理员权限。请先在 `security.admin_chat_ids` 或项目级 `admin_chat_ids` 中授权。',
+        '当前 chat_id 没有足够权限。请先在全局或项目级角色列表中授予 operator/admin 权限。',
         context.message_id,
         context.text,
       );
@@ -994,7 +1050,7 @@ export class CodexFeishuService {
       if (command.action === 'runs') {
         await this.sendTextReply(
           context.chat_id,
-          await this.buildAdminRunsText(globalAdmin ? undefined : new Set(projectAdminAliases)),
+          await this.buildAdminRunsText(globalAdmin ? undefined : new Set(projectOperatorAliases)),
           context.message_id,
           context.text,
         );
@@ -1025,7 +1081,7 @@ export class CodexFeishuService {
       if (command.action === 'list') {
         await this.sendTextReply(
           context.chat_id,
-          this.buildProjectsAdminText(globalAdmin ? undefined : new Set(projectAdminAliases)),
+          this.buildProjectsAdminText(globalAdmin ? undefined : new Set(projectOperatorAliases)),
           context.message_id,
           context.text,
         );
@@ -1044,6 +1100,8 @@ export class CodexFeishuService {
           mention_required: true,
           knowledge_paths: [],
           wiki_space_ids: [],
+          viewer_chat_ids: [],
+          operator_chat_ids: [],
           admin_chat_ids: [],
           chat_rate_limit_window_seconds: 60,
           chat_rate_limit_max_runs: 20,
@@ -1095,7 +1153,7 @@ export class CodexFeishuService {
       if (!patch) {
         await this.sendTextReply(
           context.chat_id,
-          '支持字段: root, profile, sandbox, session_scope, mention_required, description, admin_chat_ids, download_dir, temp_dir, chat_rate_limit_window_seconds, chat_rate_limit_max_runs',
+          '支持字段: root, profile, sandbox, session_scope, mention_required, description, viewer_chat_ids, operator_chat_ids, admin_chat_ids, download_dir, temp_dir, chat_rate_limit_window_seconds, chat_rate_limit_max_runs',
           context.message_id,
           context.text,
         );
@@ -1154,91 +1212,26 @@ export class CodexFeishuService {
     },
     target?: string,
   ): Promise<void> {
-    const normalizedTarget = target?.trim();
-    if (normalizedTarget === 'list') {
-      const candidates = await this.codexSessionIndex.listProjectSessions(projectContext.project.root, 10);
-      if (candidates.length === 0) {
-        await this.sendTextReply(
-          context.chat_id,
-          [
-            `项目: ${projectContext.projectAlias}`,
-            `项目根: ${projectContext.project.root}`,
-            '未找到可接管的本地 Codex 会话。',
-          ].join('\n'),
-          context.message_id,
-          context.text,
-        );
-        return;
-      }
-
-      const lines = candidates.map((session, index) =>
-        [
-          `${index + 1}. ${session.threadId}`,
-          `   updated_at: ${session.updatedAt}`,
-          `   cwd: ${session.cwd}`,
-          `   match: ${renderSessionMatch(session)}`,
-          `   source: ${session.source}`,
-        ].join('\n'),
-      );
-      await this.sendTextReply(
-        context.chat_id,
-        [
-          `项目: ${projectContext.projectAlias}`,
-          `项目根: ${projectContext.project.root}`,
-          '可接管的本地 Codex 会话:',
-          '',
-          ...lines,
-        ].join('\n'),
-        context.message_id,
-        context.text,
-      );
-      return;
+    const adoption = await adoptSharedProjectSession(this.config, this.sessionStore, this.codexSessionIndex, {
+      chatId: context.chat_id,
+      actorId: context.actor_id,
+      tenantKey: context.tenant_key,
+      projectAlias: projectContext.projectAlias,
+    }, target);
+    if (adoption.structured.adopted) {
+      await this.auditLog.append({
+        type: 'session.adopted',
+        chat_id: context.chat_id,
+        actor_id: context.actor_id,
+        project_alias: projectContext.projectAlias,
+        conversation_key: projectContext.sessionKey,
+        thread_id: adoption.structured.adopted.threadId,
+        source_cwd: adoption.structured.adopted.cwd,
+        source: adoption.structured.adopted.source,
+        match_kind: adoption.structured.adopted.matchKind,
+      });
     }
-
-    const adopted = !normalizedTarget || normalizedTarget === 'latest'
-      ? await this.codexSessionIndex.findLatestProjectSession(projectContext.project.root)
-      : await this.codexSessionIndex.findProjectSessionById(projectContext.project.root, normalizedTarget);
-    if (!adopted) {
-      await this.sendTextReply(
-        context.chat_id,
-        [
-          `项目: ${projectContext.projectAlias}`,
-          normalizedTarget ? `未找到可接管的本地 Codex 会话: ${normalizedTarget}` : '未找到可接管的本地 Codex 会话。',
-          '用法: /session adopt latest | /session adopt list | /session adopt <thread_id>',
-        ].join('\n'),
-        context.message_id,
-        context.text,
-      );
-      return;
-    }
-
-    await this.sessionStore.upsertProjectSession(projectContext.sessionKey, projectContext.projectAlias, {
-      thread_id: adopted.threadId,
-    });
-    await this.auditLog.append({
-      type: 'session.adopted',
-      chat_id: context.chat_id,
-      actor_id: context.actor_id,
-      project_alias: projectContext.projectAlias,
-      conversation_key: projectContext.sessionKey,
-      thread_id: adopted.threadId,
-      source_cwd: adopted.cwd,
-      source: adopted.source,
-      match_kind: adopted.matchKind,
-    });
-    await this.sendTextReply(
-      context.chat_id,
-      [
-        `项目: ${projectContext.projectAlias}`,
-        `已接管本地 Codex 会话: ${adopted.threadId}`,
-        `match: ${renderSessionMatch(adopted)}`,
-        `source cwd: ${adopted.cwd}`,
-        `updated_at: ${adopted.updatedAt}`,
-        '下一条消息会直接续接这个会话。',
-      ].join('\n'),
-      context.message_id,
-      context.text,
-    );
+    await this.sendTextReply(context.chat_id, adoption.text, context.message_id, context.text);
   }
 
   private async handleMemoryCommand(
@@ -2052,14 +2045,20 @@ export class CodexFeishuService {
     );
   }
 
-  private async buildProjectsText(selectionKey: string): Promise<string> {
+  private async buildProjectsText(selectionKey: string, chatId?: string): Promise<string> {
     const selected = await this.resolveProjectAlias(selectionKey);
-    const lines = Object.entries(this.config.projects).map(([alias, project]) => {
-      const marker = alias === selected ? '*' : '-';
-      const description = project.description ? ` | ${project.description}` : '';
-      return `${marker} ${alias}: ${project.root}${description}`;
-    });
-    return ['可用项目:', ...lines].join('\n');
+    const visibleAliases = chatId ? filterAccessibleProjects(this.config, chatId) : Object.keys(this.config.projects);
+    const lines = Object.entries(this.config.projects)
+      .filter(([alias]) => visibleAliases.includes(alias))
+      .map(([alias, project]) => {
+        const marker = alias === selected ? '*' : '-';
+        const description = project.description ? ` | ${project.description}` : '';
+        return `${marker} ${alias}: ${project.root}${description}`;
+      });
+    if (chatId && lines.length === 0) {
+      return '当前 chat_id 没有任何可访问项目。请联系管理员分配 viewer/operator/admin 权限。';
+    }
+    return ['可用项目:', ...(lines.length > 0 ? lines : ['(empty)'])].join('\n');
   }
 
   private async buildStatusText(projectAlias: string, conversation: ConversationState, activeRun?: RunState | null): Promise<string> {
@@ -2249,6 +2248,9 @@ export class CodexFeishuService {
     queueKey: string;
   }> {
     const projectAlias = await this.resolveProjectAlias(selectionKey);
+    if (!canAccessProject(this.config, projectAlias, context.chat_id, 'viewer')) {
+      throw new Error(`当前 chat_id 无权访问项目 ${projectAlias}。至少需要 ${describeMinimumRole('viewer')} 权限。`);
+    }
     const project = this.requireProject(projectAlias);
     const sessionKey = buildConversationKey({
       tenantKey: context.tenant_key,
@@ -2501,6 +2503,8 @@ export class CodexFeishuService {
     return [
       '管理员配置',
       '',
+      `viewer chat_id 数: ${this.config.security.viewer_chat_ids?.length ?? 0}`,
+      `operator chat_id 数: ${this.config.security.operator_chat_ids?.length ?? 0}`,
       `管理员 chat_id 数: ${this.config.security.admin_chat_ids.length}`,
       `允许私聊数: ${this.config.feishu.allowed_chat_ids.length}`,
       `允许群聊数: ${this.config.feishu.allowed_group_ids.length}`,
@@ -2512,9 +2516,13 @@ export class CodexFeishuService {
     ].join('\n');
   }
 
-  private buildAdminListText(resource: 'admin' | 'group' | 'chat'): string {
+  private buildAdminListText(resource: 'viewer' | 'operator' | 'admin' | 'group' | 'chat'): string {
     const items =
-      resource === 'admin'
+      resource === 'viewer'
+        ? (this.config.security.viewer_chat_ids ?? [])
+        : resource === 'operator'
+          ? (this.config.security.operator_chat_ids ?? [])
+          : resource === 'admin'
         ? this.config.security.admin_chat_ids
         : resource === 'group'
           ? this.config.feishu.allowed_group_ids
@@ -2526,7 +2534,8 @@ export class CodexFeishuService {
     const entries = Object.entries(this.config.projects).filter(([alias]) => !allowedAliases || allowedAliases.has(alias));
     const lines = entries.map(([alias, project]) => {
       const flags = [`scope=${project.session_scope}`, `mention=${project.mention_required ? 'on' : 'off'}`].join(' ');
-      return `- ${alias}: ${project.root} | ${flags}`;
+      const roles = [`viewer=${project.viewer_chat_ids?.length ?? 0}`, `operator=${project.operator_chat_ids?.length ?? 0}`, `admin=${project.admin_chat_ids.length}`].join(' ');
+      return `- ${alias}: ${project.root} | ${flags} | ${roles}`;
     });
     return ['当前项目列表:', ...(lines.length > 0 ? lines : ['(empty)'])].join('\n');
   }
@@ -2564,24 +2573,23 @@ export class CodexFeishuService {
     return lines.join('\n');
   }
 
-  private getAuthorizedProjectAliases(chatId: string): string[] {
-    return Object.entries(this.config.projects)
-      .filter(([, project]) => project.admin_chat_ids.includes(chatId))
-      .map(([alias]) => alias);
+  private getAuthorizedProjectAliases(chatId: string, minimumRole: AccessRole = 'admin'): string[] {
+    return Object.keys(this.config.projects).filter((alias) => canAccessProject(this.config, alias, chatId, minimumRole));
   }
 
   private isProjectAdminChat(chatId: string, projectAlias: string): boolean {
-    return this.requireProject(projectAlias).admin_chat_ids.includes(chatId);
+    return canAccessProject(this.config, projectAlias, chatId, 'admin');
   }
 
   private canAccessAdminCommand(
     command: Extract<ReturnType<typeof parseBridgeCommand>, { kind: 'admin' }>,
     currentProjectAlias: string,
     authorizedProjectAliases: string[],
+    operatorProjectAliases: string[],
   ): boolean {
     if (command.resource === 'project') {
       if (command.action === 'list') {
-        return authorizedProjectAliases.length > 0;
+        return operatorProjectAliases.length > 0;
       }
       if (command.action === 'set' && command.alias) {
         return authorizedProjectAliases.includes(command.alias);
@@ -2589,8 +2597,11 @@ export class CodexFeishuService {
       return false;
     }
 
-    if (command.resource === 'service' && command.action === 'runs') {
-      return authorizedProjectAliases.length > 0;
+    if (command.resource === 'service') {
+      if (command.action === 'restart') {
+        return authorizedProjectAliases.length > 0;
+      }
+      return operatorProjectAliases.length > 0;
     }
 
     return authorizedProjectAliases.includes(currentProjectAlias);
@@ -2713,6 +2724,10 @@ export class CodexFeishuService {
         return null;
       case 'description':
         return { description: value };
+      case 'viewer_chat_ids':
+        return { viewer_chat_ids: splitCommaSeparatedValues(value) };
+      case 'operator_chat_ids':
+        return { operator_chat_ids: splitCommaSeparatedValues(value) };
       case 'admin_chat_ids':
         return { admin_chat_ids: splitCommaSeparatedValues(value) };
       case 'download_dir':
@@ -2824,7 +2839,15 @@ export class CodexFeishuService {
     }
   }
 
-  private applyAdminListValues(resource: 'admin' | 'group' | 'chat', values: string[]): void {
+  private applyAdminListValues(resource: 'viewer' | 'operator' | 'admin' | 'group' | 'chat', values: string[]): void {
+    if (resource === 'viewer') {
+      this.config.security.viewer_chat_ids = values;
+      return;
+    }
+    if (resource === 'operator') {
+      this.config.security.operator_chat_ids = values;
+      return;
+    }
     if (resource === 'admin') {
       this.config.security.admin_chat_ids = values;
       return;
@@ -3201,8 +3224,12 @@ function splitCommaSeparatedValues(value: string): string[] {
     .filter(Boolean);
 }
 
-function resolveAdminListTarget(resource: 'admin' | 'group' | 'chat'): { section: 'security' | 'feishu'; key: string } {
+function resolveAdminListTarget(resource: 'viewer' | 'operator' | 'admin' | 'group' | 'chat'): { section: 'security' | 'feishu'; key: string } {
   switch (resource) {
+    case 'viewer':
+      return { section: 'security', key: 'viewer_chat_ids' };
+    case 'operator':
+      return { section: 'security', key: 'operator_chat_ids' };
     case 'admin':
       return { section: 'security', key: 'admin_chat_ids' };
     case 'group':
@@ -3237,11 +3264,6 @@ function renderMemorySection(title: string, items: Array<{ title: string; conten
     used += line.length;
   }
   return lines.length > 2 ? lines : [];
-}
-
-function renderSessionMatch(session: Pick<IndexedCodexSession, 'matchKind' | 'matchScore'>): string {
-  const label = renderSessionMatchLabel(session);
-  return session.matchScore ? `${label} (${session.matchScore})` : label;
 }
 
 function formatAgeFromNow(isoTimestamp: string): string {

@@ -60,6 +60,8 @@ dir = "~/.codex-feishu/state"
 
 [security]
 allowed_project_roots = []
+# viewer_chat_ids = ["oc_viewer_chat_1"]
+# operator_chat_ids = ["oc_operator_chat_1"]
 admin_chat_ids = []
 require_group_mentions = true
 
@@ -82,6 +84,8 @@ allowed_group_ids = []
 root = "${defaultRoot}"
 session_scope = "chat"
 mention_required = true
+# viewer_chat_ids = ["oc_project_viewer_1"]
+# operator_chat_ids = ["oc_project_operator_1"]
 admin_chat_ids = []
 chat_rate_limit_window_seconds = 60
 chat_rate_limit_max_runs = 20

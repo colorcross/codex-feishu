@@ -29,8 +29,9 @@ It routes Feishu messages directly into resumable Codex CLI sessions. Project bi
 | **Wiki & KB Access** | Full read/write access to Feishu Wiki, supporting `/wiki` search, read, create, rename, etc.; supports `/kb search` for local project documents. |
 | **Media Aware** | Images, files, audio, and rich text messages are parsed into structured metadata and injected into Codex prompts. |
 | **MCP Surface** | Not just for Feishu. Run `codex-feishu mcp` to expose core capabilities to external tools like OpenClaw that support MCP. |
+| **Access Roles** | Supports `viewer / operator / admin` roles so project visibility, session control, and service changes can be gated separately. |
 | **Memory System** | Supports project memory and group shared memory, SQLite + FTS5 retrieval, configurable TTL, pin strategies, and background cleanup. |
-| **Observability** | Built-in 16 Prometheus metrics, Alertmanager alert support, and Grafana visualization. All data is locally controllable. |
+| **Observability** | Built-in `/healthz`, `/readyz`, and `/metrics`, plus structured audit trails and Prometheus / Alertmanager / Grafana integration. |
 
 ## 🚀 Quick Start
 

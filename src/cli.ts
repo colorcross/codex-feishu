@@ -27,6 +27,7 @@ import { acquireInstanceLock } from './runtime/instance-lock.js';
 import { formatFeishuInspect, inspectFeishuEnvironment } from './feishu/diagnostics.js';
 import { MetricsRegistry } from './observability/metrics.js';
 import { startMetricsServer } from './observability/server.js';
+import { ServiceReadinessProbe } from './observability/readiness.js';
 import { buildReplayCardAction, buildReplayMessageEvent, postWebhookPayload, requestWebhookEndpoint } from './feishu/replay.js';
 import { isProcessAlive, terminateProcess } from './runtime/process.js';
 import { startMcpServer } from './mcp/server.js';
@@ -167,14 +168,19 @@ const serveCommand = program
 
     const { config, sources } = await loadBridgeConfig({ cwd: process.cwd(), configPath: options.config });
     logger.info({ sources, transport: config.feishu.transport }, 'Loaded bridge config');
+    const readiness = new ServiceReadinessProbe(config.service.name);
+    readiness.markStarting(config.feishu.transport, { transport: config.feishu.transport });
+    let findings = [] as Awaited<ReturnType<typeof runDoctor>>;
 
     if (!options.skipDoctor) {
-      const findings = await runDoctor(config);
+      findings = await runDoctor(config);
+      readiness.recordDoctorFindings(findings);
       for (const finding of findings) {
         const level = finding.level === 'error' ? 'error' : finding.level;
         logger[level]({ finding: finding.message }, 'Startup preflight');
       }
       if (hasDoctorErrors(findings)) {
+        readiness.markDegraded('Doctor failed with blocking errors.');
         throw new Error('Doctor failed with blocking errors. Run `codex-feishu doctor` to inspect the config.');
       }
     }
@@ -226,6 +232,7 @@ const serveCommand = program
             serviceName: config.service.name,
             logger,
             metrics,
+            readiness,
           })
         : undefined;
 
@@ -242,15 +249,19 @@ const serveCommand = program
       let stopSignal: NodeJS.Signals | undefined;
       try {
         if (config.feishu.transport === 'long-connection') {
-          stopSignal = await startLongConnectionBridge({ config, service, feishuClient, logger });
+          stopSignal = await startLongConnectionBridge({ config, service, feishuClient, logger, readiness });
           return;
         }
 
-        stopSignal = await startWebhookBridge({ config, service, logger });
+        stopSignal = await startWebhookBridge({ config, service, logger, readiness });
+      } catch (error) {
+        readiness.markDegraded(error instanceof Error ? error.message : String(error), { transport: config.feishu.transport });
+        throw error;
       } finally {
         await auditLog.append({ type: 'service.stop', transport: config.feishu.transport, signal: stopSignal ?? 'unknown' });
       }
     } finally {
+      readiness.markStopped({ transport: config.feishu.transport });
       service.stopMaintenanceLoop();
       if (metricsServer) {
         await metricsServer.close();

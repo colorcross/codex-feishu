@@ -391,7 +391,7 @@ describe('bridge service', () => {
     const conversation = await setup.sessionStore.getConversation(sessionKey);
     expect(conversation?.projects['repo-b']?.thread_id).toBe('thread-chat-existing');
     const lastReply = setup.sendText.mock.calls.at(-1)?.[1] as string;
-    expect(lastReply).toContain('已保留当前聊天下该项目的会话: thread-chat-existing');
+    expect(lastReply).toContain('已保留当前项目会话: thread-chat-existing');
   });
 
   it('cancels an active run and records cancelled status', async () => {

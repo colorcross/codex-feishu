@@ -4,9 +4,11 @@ import { spawn } from 'node:child_process';
 import packageJson from '../../package.json' with { type: 'json' };
 import { buildHelpText, describeBridgeCommand, parseBridgeCommand, requiresCommandConfirmation, type BridgeCommand } from '../bridge/commands.js';
 import { buildQueueKey } from '../bridge/service.js';
-import { CodexSessionIndex, renderSessionMatchLabel, type IndexedCodexSession } from '../codex/session-index.js';
+import { adoptProjectSession as adoptSharedProjectSession, listBridgeSessions as listSharedBridgeSessions, renderSessionMatch, resolveProjectContext as resolveSharedProjectContext, switchProjectBinding as switchSharedProjectBinding, type ConversationRef, type ResolvedProjectContext } from '../control-plane/project-session.js';
+import { CodexSessionIndex } from '../codex/session-index.js';
 import { loadBridgeConfig, loadRuntimeConfig } from '../config/load.js';
-import type { BridgeConfig, ProjectConfig } from '../config/schema.js';
+import type { BridgeConfig } from '../config/schema.js';
+import { canAccessProject, describeMinimumRole, filterAccessibleProjects } from '../security/access.js';
 import { ConfigHistoryStore } from '../state/config-history-store.js';
 import { RunStateStore } from '../state/run-state-store.js';
 import { SessionStore, buildConversationKey } from '../state/session-store.js';
@@ -41,19 +43,8 @@ interface ToolCallResult {
   isError?: boolean;
 }
 
-interface McpConversationInput {
-  chatId: string;
-  actorId?: string;
-  tenantKey?: string;
-  projectAlias?: string;
-}
-
-interface ResolvedMcpProjectContext extends McpConversationInput {
-  selectionKey: string;
-  sessionKey: string;
-  projectAlias: string;
-  project: ProjectConfig;
-}
+type McpConversationInput = ConversationRef;
+type ResolvedMcpProjectContext = ResolvedProjectContext;
 
 const CONVERSATION_SCHEMA_PROPERTIES = {
   chatId: { type: 'string' },
@@ -405,46 +396,7 @@ async function switchProjectBinding(
   conversation: McpConversationInput,
   projectAlias: string,
 ): Promise<{ text: string; structured: unknown }> {
-  const resolved = await resolveProjectContext(config, sessionStore, { ...conversation, projectAlias });
-  const structured: {
-    projectAlias: string;
-    selectionKey: string;
-    sessionKey: string;
-    autoAdoption:
-      | { kind: 'disabled' }
-      | { kind: 'existing'; threadId: string }
-      | { kind: 'adopted'; session: IndexedCodexSession }
-      | { kind: 'missing' };
-  } = {
-    projectAlias: resolved.projectAlias,
-    selectionKey: resolved.selectionKey,
-    sessionKey: resolved.sessionKey,
-    autoAdoption: { kind: 'disabled' },
-  };
-
-  const lines = [`当前项目已切换为: ${resolved.projectAlias}`];
-  if (resolved.project.description) {
-    lines.push(`说明: ${resolved.project.description}`);
-  }
-
-  if (config.service.project_switch_auto_adopt_latest) {
-    const adoption = await maybeAutoAdoptLatestSession(sessionStore, sessionIndex, resolved);
-    structured.autoAdoption = adoption;
-    if (adoption.kind === 'existing') {
-      lines.push(`已保留当前项目会话: ${adoption.threadId}`);
-    } else if (adoption.kind === 'adopted') {
-      lines.push(`已自动接管本地 Codex 会话: ${adoption.session.threadId}`);
-      lines.push(`match: ${renderSessionMatch(adoption.session)}`);
-      lines.push(`source cwd: ${adoption.session.cwd}`);
-    } else if (adoption.kind === 'missing') {
-      lines.push('未找到可自动接管的本地 Codex 会话。下一条消息会新开会话。');
-    }
-  }
-
-  return {
-    text: lines.join('\n'),
-    structured,
-  };
+  return switchSharedProjectBinding(config, sessionStore, sessionIndex, conversation, projectAlias);
 }
 
 async function listBridgeSessions(
@@ -452,34 +404,7 @@ async function listBridgeSessions(
   sessionStore: SessionStore,
   conversation: McpConversationInput,
 ): Promise<{ text: string; structured: unknown }> {
-  const resolved = await resolveProjectContext(config, sessionStore, conversation);
-  const sessions = await sessionStore.listProjectSessions(resolved.sessionKey, resolved.projectAlias);
-  const activeSessionId = (await sessionStore.getConversation(resolved.sessionKey))?.projects[resolved.projectAlias]?.thread_id ?? null;
-  if (sessions.length === 0) {
-    return {
-      text: `项目 ${resolved.projectAlias} 还没有保存的会话。`,
-      structured: {
-        projectAlias: resolved.projectAlias,
-        sessionKey: resolved.sessionKey,
-        activeSessionId,
-        sessions: [],
-      },
-    };
-  }
-
-  const lines = sessions.map((session, index) => {
-    const prefix = session.thread_id === activeSessionId ? '*' : `${index + 1}.`;
-    return `${prefix} ${session.thread_id} (${session.updated_at})${session.last_response_excerpt ? `\n   ${truncateText(session.last_response_excerpt, 80)}` : ''}`;
-  });
-  return {
-    text: [`项目: ${resolved.projectAlias}`, `当前会话: ${activeSessionId ?? '未选择'}`, '', ...lines].join('\n'),
-    structured: {
-      projectAlias: resolved.projectAlias,
-      sessionKey: resolved.sessionKey,
-      activeSessionId,
-      sessions,
-    },
-  };
+  return listSharedBridgeSessions(config, sessionStore, conversation);
 }
 
 async function adoptProjectSession(
@@ -489,79 +414,7 @@ async function adoptProjectSession(
   conversation: McpConversationInput,
   target?: string,
 ): Promise<{ text: string; structured: unknown }> {
-  const resolved = await resolveProjectContext(config, sessionStore, conversation);
-  const normalizedTarget = target?.trim();
-
-  if (normalizedTarget === 'list') {
-    const candidates = await sessionIndex.listProjectSessions(resolved.project.root, 10);
-    if (candidates.length === 0) {
-      return {
-        text: [`项目: ${resolved.projectAlias}`, `项目根: ${resolved.project.root}`, '未找到可接管的本地 Codex 会话。'].join('\n'),
-        structured: {
-          projectAlias: resolved.projectAlias,
-          projectRoot: resolved.project.root,
-          target: 'list',
-          candidates: [],
-        },
-      };
-    }
-    const lines = candidates.map((session, index) =>
-      [
-        `${index + 1}. ${session.threadId}`,
-        `   updated_at: ${session.updatedAt}`,
-        `   cwd: ${session.cwd}`,
-        `   match: ${renderSessionMatch(session)}`,
-        `   source: ${session.source}`,
-      ].join('\n'),
-    );
-    return {
-      text: [`项目: ${resolved.projectAlias}`, `项目根: ${resolved.project.root}`, '可接管的本地 Codex 会话:', '', ...lines].join('\n'),
-      structured: {
-        projectAlias: resolved.projectAlias,
-        projectRoot: resolved.project.root,
-        target: 'list',
-        candidates,
-      },
-    };
-  }
-
-  const adopted = !normalizedTarget || normalizedTarget === 'latest'
-    ? await sessionIndex.findLatestProjectSession(resolved.project.root)
-    : await sessionIndex.findProjectSessionById(resolved.project.root, normalizedTarget);
-  if (!adopted) {
-    return {
-      text: [
-        `项目: ${resolved.projectAlias}`,
-        normalizedTarget ? `未找到可接管的本地 Codex 会话: ${normalizedTarget}` : '未找到可接管的本地 Codex 会话。',
-        '用法: target=latest | target=list | target=<thread_id>',
-      ].join('\n'),
-      structured: {
-        projectAlias: resolved.projectAlias,
-        projectRoot: resolved.project.root,
-        target: normalizedTarget ?? 'latest',
-        adopted: null,
-      },
-    };
-  }
-
-  await sessionStore.upsertProjectSession(resolved.sessionKey, resolved.projectAlias, {
-    thread_id: adopted.threadId,
-  });
-  return {
-    text: [
-      `项目: ${resolved.projectAlias}`,
-      `已接管本地 Codex 会话: ${adopted.threadId}`,
-      `match: ${renderSessionMatch(adopted)}`,
-      `source cwd: ${adopted.cwd}`,
-      `updated_at: ${adopted.updatedAt}`,
-      '下一条消息会直接续接这个会话。',
-    ].join('\n'),
-    structured: {
-      projectAlias: resolved.projectAlias,
-      sessionKey: resolved.sessionKey,
-      adopted,
-    },
-  };
+  return adoptSharedProjectSession(config, sessionStore, sessionIndex, conversation, target);
 }
 
 function interpretBridgeCommand(text: string): { text: string; structured: unknown } {
@@ -653,15 +506,18 @@ async function executeMcpCommand(input: {
         },
       };
     case 'projects': {
-      const projects = Object.entries(input.config.projects).map(([alias, project]) => ({
+      const visibleAliases = filterAccessibleProjects(input.config, input.conversation.chatId);
+      const projects = Object.entries(input.config.projects)
+        .filter(([alias]) => visibleAliases.includes(alias))
+        .map(([alias, project]) => ({
         alias,
         root: project.root,
         description: project.description ?? null,
         session_scope: project.session_scope,
-      }));
+        }));
       const selected = await resolveSelectedProjectAlias(input.config, input.sessionStore, input.conversation);
       return {
-        text: projects.length === 0 ? 'No projects configured.' : renderJson({ selected, projects }),
+        text: projects.length === 0 ? 'No accessible projects configured for this chat.' : renderJson({ selected, projects }),
         structured: {
           executed: true,
           kind: 'projects',
@@ -758,6 +614,9 @@ async function executeSessionCommand(
       };
     }
     case 'use': {
+      if (!canAccessProject(config, resolved.projectAlias, conversation.chatId, 'operator')) {
+        throw new Error(`Current chat requires ${describeMinimumRole('operator')} role to switch sessions for ${resolved.projectAlias}.`);
+      }
       if (!command.threadId) {
         throw new Error('session use requires threadId.');
       }
@@ -775,6 +634,9 @@ async function executeSessionCommand(
       };
     }
     case 'new':
+      if (!canAccessProject(config, resolved.projectAlias, conversation.chatId, 'operator')) {
+        throw new Error(`Current chat requires ${describeMinimumRole('operator')} role to open a new session for ${resolved.projectAlias}.`);
+      }
       await sessionStore.clearActiveProjectSession(resolved.sessionKey, resolved.projectAlias);
       return {
         text: '已切换为新会话模式。下一条消息会新开会话。',
@@ -787,6 +649,9 @@ async function executeSessionCommand(
         },
       };
     case 'drop': {
+      if (!canAccessProject(config, resolved.projectAlias, conversation.chatId, 'operator')) {
+        throw new Error(`Current chat requires ${describeMinimumRole('operator')} role to drop sessions for ${resolved.projectAlias}.`);
+      }
       const targetThreadId = command.threadId ?? activeSessionId;
       if (!targetThreadId) {
         return {
@@ -825,6 +690,7 @@ async function executeAdminServiceCommand(
     writableConfigPath: string | null;
     cwd: string;
     runStateStore: RunStateStore;
+    conversation: McpConversationInput;
   },
 ): Promise<{ text: string; structured: unknown }> {
   if (command.resource !== 'service') {
@@ -839,6 +705,10 @@ async function executeAdminServiceCommand(
   }
 
   if (command.action === 'status') {
+    const allowedAliases = filterAccessibleProjects(input.config, input.conversation.chatId, 'operator');
+    if (allowedAliases.length === 0) {
+      throw new Error(`Current chat requires ${describeMinimumRole('operator')} role to inspect service state.`);
+    }
     const status = await inspectRuntimeStatus(input.config);
     return {
       text: renderJson(status),
@@ -853,9 +723,14 @@ async function executeAdminServiceCommand(
   }
 
   if (command.action === 'runs') {
+    const allowedAliases = new Set(filterAccessibleProjects(input.config, input.conversation.chatId, 'operator'));
+    if (allowedAliases.size === 0) {
+      throw new Error(`Current chat requires ${describeMinimumRole('operator')} role to inspect active runs.`);
+    }
     const runs = await input.runStateStore.listRuns();
-    const active = runs.filter((run) => run.status === 'queued' || run.status === 'running' || run.status === 'orphaned').slice(0, 10);
-    const recentFailures = runs.filter((run) => run.status === 'failure' || run.status === 'cancelled' || run.status === 'stale').slice(0, 5);
+    const visibleRuns = runs.filter((run) => allowedAliases.has(run.project_alias));
+    const active = visibleRuns.filter((run) => run.status === 'queued' || run.status === 'running' || run.status === 'orphaned').slice(0, 10);
+    const recentFailures = visibleRuns.filter((run) => run.status === 'failure' || run.status === 'cancelled' || run.status === 'stale').slice(0, 5);
     const lines = ['当前运行列表', '', 'active/queued:'];
     if (active.length === 0) {
       lines.push('(empty)');
@@ -887,6 +762,10 @@ async function executeAdminServiceCommand(
     };
   }
 
+  const adminAliases = filterAccessibleProjects(input.config, input.conversation.chatId, 'admin');
+  if (adminAliases.length === 0) {
+    throw new Error(`Current chat requires ${describeMinimumRole('admin')} role to restart the service.`);
+  }
   await restartServiceProcess(input.cwd, input.writableConfigPath);
   return {
     text: 'Service restart command submitted.',
@@ -978,7 +857,14 @@ async function resolveSelectedProjectAlias(
   sessionStore: SessionStore,
   conversation: McpConversationInput,
 ): Promise<string> {
-  return (await resolveProjectContext(config, sessionStore, conversation)).projectAlias;
+  const selectionKey = buildConversationKey({
+    tenantKey: conversation.tenantKey,
+    chatId: conversation.chatId,
+    actorId: conversation.actorId,
+    scope: 'chat',
+  });
+  const selection = await sessionStore.getConversation(selectionKey);
+  return conversation.projectAlias ?? selection?.selected_project_alias ?? config.service.default_project ?? Object.keys(config.projects)[0] ?? 'default';
 }
 
 async function resolveProjectContext(
@@ -986,87 +872,7 @@ async function resolveProjectContext(
   sessionStore: SessionStore,
   conversation: McpConversationInput,
 ): Promise<ResolvedMcpProjectContext> {
-  const selectionKey = buildConversationKey({
-    tenantKey: conversation.tenantKey,
-    chatId: conversation.chatId,
-    actorId: conversation.actorId,
-    scope: 'chat',
-  });
-  await sessionStore.ensureConversation(selectionKey, {
-    chat_id: conversation.chatId,
-    actor_id: conversation.actorId,
-    tenant_key: conversation.tenantKey,
-    scope: 'chat',
-  });
-
-  if (conversation.projectAlias) {
-    requireProject(config, conversation.projectAlias);
-    await sessionStore.selectProject(selectionKey, conversation.projectAlias);
-  }
-
-  const selection = await sessionStore.getConversation(selectionKey);
-  const fallbackAlias = config.service.default_project ?? Object.keys(config.projects)[0];
-  const projectAlias = conversation.projectAlias ?? selection?.selected_project_alias ?? fallbackAlias;
-  if (!projectAlias) {
-    throw new Error('No project configured.');
-  }
-  const project = requireProject(config, projectAlias);
-  await sessionStore.selectProject(selectionKey, projectAlias);
-
-  const sessionKey = buildConversationKey({
-    tenantKey: conversation.tenantKey,
-    chatId: conversation.chatId,
-    actorId: conversation.actorId,
-    scope: project.session_scope,
-  });
-  await sessionStore.ensureConversation(sessionKey, {
-    chat_id: conversation.chatId,
-    actor_id: conversation.actorId,
-    tenant_key: conversation.tenantKey,
-    scope: project.session_scope,
-  });
-
-  return {
-    ...conversation,
-    selectionKey,
-    sessionKey,
-    projectAlias,
-    project,
-  };
-}
-
-async function maybeAutoAdoptLatestSession(
-  sessionStore: SessionStore,
-  sessionIndex: CodexSessionIndex,
-  context: ResolvedMcpProjectContext,
-): Promise<
-  | { kind: 'existing'; threadId: string }
-  | { kind: 'adopted'; session: IndexedCodexSession }
-  | { kind: 'missing' }
-> {
-  const conversation = await sessionStore.getConversation(context.sessionKey);
-  const existingThreadId = conversation?.projects[context.projectAlias]?.thread_id;
-  if (existingThreadId) {
-    return { kind: 'existing', threadId: existingThreadId };
-  }
-
-  const adopted = await sessionIndex.findLatestProjectSession(context.project.root);
-  if (!adopted) {
-    return { kind: 'missing' };
-  }
-
-  await sessionStore.upsertProjectSession(context.sessionKey, context.projectAlias, {
-    thread_id: adopted.threadId,
-  });
-  return { kind: 'adopted', session: adopted };
-}
-
-function requireProject(config: BridgeConfig, alias: string): ProjectConfig {
-  const project = config.projects[alias];
-  if (!project) {
-    throw new Error(`Project not found: ${alias}`);
-  }
-  return project;
+  return resolveSharedProjectContext(config, sessionStore, conversation);
 }
 
 function parseConversationInput(argumentsObject: Record<string, unknown>): McpConversationInput {
@@ -1209,11 +1015,6 @@ function renderJson(value: unknown): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function renderSessionMatch(session: Pick<IndexedCodexSession, 'matchKind' | 'matchScore'>): string {
-  const label = renderSessionMatchLabel(session);
-  return session.matchScore ? `${label} (${session.matchScore})` : label;
 }
 
 function truncateText(text: string, limit: number): string {

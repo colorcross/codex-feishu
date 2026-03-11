@@ -17,6 +17,8 @@ export const projectSchema = z.object({
   instructions_prefix: z.string().optional(),
   knowledge_paths: z.array(z.string()).default([]),
   wiki_space_ids: z.array(z.string()).default([]),
+  viewer_chat_ids: z.array(z.string()).optional(),
+  operator_chat_ids: z.array(z.string()).optional(),
   admin_chat_ids: z.array(z.string()).default([]),
   download_dir: z.string().optional(),
   temp_dir: z.string().optional(),
@@ -123,6 +125,8 @@ export const bridgeConfigSchema = z.object({
   security: z
     .object({
       allowed_project_roots: z.array(z.string()).default([]),
+      viewer_chat_ids: z.array(z.string()).optional(),
+      operator_chat_ids: z.array(z.string()).optional(),
       admin_chat_ids: z.array(z.string()).default([]),
       require_group_mentions: z.boolean().default(true),
     })

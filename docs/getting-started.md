@@ -144,6 +144,34 @@ project_switch_auto_adopt_latest = true
 
 这会去本机 `~/.codex/sessions` 里找当前项目可匹配的 Codex CLI 会话，并把它设成当前 chat 下该项目的 active session。
 
+## 权限模型
+
+桥接器现在支持三档 `chat_id` 角色：
+
+- `viewer`：可见项目、查看 `/projects`、`/status`、`/session list`
+- `operator`：可切项目、接管会话、取消运行、查看 `/admin runs`
+- `admin`：可修改配置、增删项目、回滚配置、重启服务
+
+可在全局或项目级配置：
+
+```toml
+[security]
+viewer_chat_ids = ["oc_viewer_chat_1"]
+operator_chat_ids = ["oc_operator_chat_1"]
+admin_chat_ids = ["oc_admin_chat_1"]
+
+[projects.repo-a]
+root = "/srv/repos/repo-a"
+viewer_chat_ids = ["oc_repo_viewer_1"]
+operator_chat_ids = ["oc_repo_operator_1"]
+admin_chat_ids = ["oc_repo_admin_1"]
+```
+
+默认规则：
+
+- 没有配置任一角色名单时，项目默认开放
+- 一旦某个项目或全局配置了角色名单，该项目会按最小权限收口
+
 ## 排队与仓库占用提示
 
 如果当前 chat 下同一项目已经有运行，或者别的 chat 正在操作同一个 `project.root`，新消息不会静默等待，而是会先收到一条 `queued` 提示：
@@ -201,6 +229,12 @@ allowed_group_ids = ["oc_group_1", "oc_group_2"]
 - `/admin runs`：管理员查看所有 active / queued 运行和最近失败
 - `/admin config history`：查看最近 5 次配置快照
 - `/admin config rollback <id|latest>`：回滚配置快照
+
+探针与指标：
+
+- `/healthz`：进程活性和 HTTP 面是否正常
+- `/readyz`：当前是否 ready，可用于流量接入和启动探针
+- `/metrics`：Prometheus 文本格式指标，包含 readiness / live / startup warning / startup error
 
 ## 回复模式
 

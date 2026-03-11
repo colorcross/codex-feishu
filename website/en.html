@@ -202,6 +202,12 @@ another chat. Queued with 1 task ahead.
             <strong class="metric-title">Wiki, KB, media, and runtime state</strong>
             <p class="metric-desc">Knowledge search, wiki operations, media-aware prompts, and visible run state share one entry point.</p>
           </div>
+          <div class="metric-divider" aria-hidden="true"></div>
+          <div class="metric-item">
+            <span class="metric-label">Access</span>
+            <strong class="metric-title">viewer / operator / admin</strong>
+            <p class="metric-desc">Project visibility, session control, and service changes are gated by minimum role instead of a single global switch.</p>
+          </div>
         </section>
 
         <!-- How it works -->
@@ -384,8 +390,19 @@ another chat. Queued with 1 task ahead.
                 </svg>
               </div>
               <span class="cap-label">Observability</span>
-              <h3 class="cap-title">Audit logs, Prometheus metrics, Grafana examples</h3>
-              <p class="cap-desc">16 built-in Prometheus metrics, Alertmanager alert support, Grafana visualization, and all data stays local and inspectable.</p>
+              <h3 class="cap-title">Audit logs, probes, and Prometheus metrics</h3>
+              <p class="cap-desc">Built-in <code>/healthz</code>, <code>/readyz</code>, and <code>/metrics</code> with Alertmanager and Grafana integration. Data stays local and inspectable.</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 3l6 3v4c0 3.6-2.5 5.9-6 7-3.5-1.1-6-3.4-6-7V6l6-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                  <path d="M8 10l1.5 1.5L12.5 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Access Roles</span>
+              <h3 class="cap-title">viewer / operator / admin role layers</h3>
+              <p class="cap-desc">Project visibility, session adoption, runtime control, and service restarts can be scoped separately as teams grow.</p>
             </div>
             <div class="cap-card">
               <div class="cap-icon cap-icon-amber" aria-hidden="true">

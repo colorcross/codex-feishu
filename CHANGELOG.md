@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### Highlights
+
+- 新增 `viewer / operator / admin` 三档访问模型，把项目可见性、会话控制和服务级操作分层收口。
+- 提升可观测性入口，`/healthz`、`/readyz`、`/metrics` 现在会携带 readiness 与启动告警信息。
+- MCP 与飞书共用项目/会话控制层，项目切换、会话接管和状态查看不再重复维护两套逻辑。
+
+### Included
+
+- 权限与共享控制层：
+  - `src/security/access.ts`
+  - `src/control-plane/project-session.ts`
+  - `src/bridge/service.ts`
+  - `src/mcp/server.ts`
+- readiness / metrics：
+  - `src/observability/readiness.ts`
+  - `src/observability/metrics.ts`
+  - `src/observability/server.ts`
+  - `src/feishu/webhook.ts`
+  - `src/feishu/long-connection.ts`
+  - `src/cli.ts`
+- 文档与官网：
+  - `README.md`
+  - `README.en.md`
+  - `docs/getting-started.md`
+  - `docs/deployment.md`
+  - `website/index.html`
+  - `website/en.html`
+
 ## v0.1.10 - 2026-03-11
 
 ### Highlights

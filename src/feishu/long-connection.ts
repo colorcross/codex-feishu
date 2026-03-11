@@ -5,12 +5,14 @@ import type { BridgeConfig } from '../config/schema.js';
 import { CodexFeishuService } from '../bridge/service.js';
 import { FeishuClient } from './client.js';
 import { waitForShutdownSignal } from '../runtime/shutdown.js';
+import type { ServiceReadinessProbe } from '../observability/readiness.js';
 
 export async function startLongConnectionBridge(input: {
   config: BridgeConfig;
   service: CodexFeishuService;
   feishuClient: FeishuClient;
   logger: Logger;
+  readiness?: ServiceReadinessProbe;
 }): Promise<NodeJS.Signals> {
   const client = input.feishuClient.createWsClient();
 
@@ -33,12 +35,15 @@ export async function startLongConnectionBridge(input: {
   });
 
   await client.start({ eventDispatcher: dispatcher });
+  input.readiness?.markReady({ transport: 'long-connection' });
   input.logger.info('Feishu long-connection bridge started');
 
   return waitForShutdownSignal({
     logger: input.logger,
     onShutdown: (signal) => {
+      input.readiness?.markStopping({ signal, transport: 'long-connection' });
       client.close();
+      input.readiness?.markStopped({ signal, transport: 'long-connection' });
       input.logger.info({ signal }, 'Feishu long-connection bridge stopped');
     },
   });

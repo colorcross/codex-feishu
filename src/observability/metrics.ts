@@ -3,6 +3,13 @@ export interface MetricsSink {
   observe(name: string, value: number, labels?: Record<string, string>): void;
 }
 
+export interface ReadinessMetricSnapshot {
+  ok: boolean;
+  ready: boolean;
+  startupWarnings: number;
+  startupErrors: number;
+}
+
 interface CounterMetric {
   type: 'counter';
   name: string;
@@ -36,6 +43,10 @@ const SUMMARY_DEFS: SummaryMetric[] = [
 
 const GAUGE_DEFS: GaugeMetric[] = [
   { name: 'codex_feishu_active_codex_runs', help: 'Number of Codex runs currently in progress.', type: 'gauge' },
+  { name: 'codex_feishu_service_live', help: 'Whether the bridge process is considered live.', type: 'gauge' },
+  { name: 'codex_feishu_service_ready', help: 'Whether the bridge process is ready to accept traffic.', type: 'gauge' },
+  { name: 'codex_feishu_startup_warnings', help: 'Number of startup doctor warnings recorded for the running process.', type: 'gauge' },
+  { name: 'codex_feishu_startup_errors', help: 'Number of startup doctor errors recorded for the running process.', type: 'gauge' },
   { name: 'codex_feishu_last_incoming_message_timestamp_seconds', help: 'Unix timestamp of the last incoming Feishu message.', type: 'gauge' },
   { name: 'codex_feishu_last_card_action_timestamp_seconds', help: 'Unix timestamp of the last Feishu card action.', type: 'gauge' },
   { name: 'codex_feishu_last_codex_success_timestamp_seconds', help: 'Unix timestamp of the last successful Codex run.', type: 'gauge' },
@@ -115,6 +126,13 @@ export class MetricsRegistry implements MetricsSink {
         ? 'codex_feishu_last_outbound_message_timestamp_seconds'
         : 'codex_feishu_last_outbound_failure_timestamp_seconds';
     this.setGauge(timestampMetric, nowInSeconds(), { msg_type: msgType });
+  }
+
+  public recordReadiness(snapshot: ReadinessMetricSnapshot): void {
+    this.setGauge('codex_feishu_service_live', snapshot.ok ? 1 : 0);
+    this.setGauge('codex_feishu_service_ready', snapshot.ready ? 1 : 0);
+    this.setGauge('codex_feishu_startup_warnings', snapshot.startupWarnings);
+    this.setGauge('codex_feishu_startup_errors', snapshot.startupErrors);
   }
 
   public renderPrometheus(): string {

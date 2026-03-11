@@ -5,6 +5,7 @@ import type { BridgeConfig } from '../config/schema.js';
 import { CodexFeishuService } from '../bridge/service.js';
 import { extractCardAction, extractIncomingMessage, shouldAllowChat } from './extractors.js';
 import { waitForShutdownSignal } from '../runtime/shutdown.js';
+import type { ServiceReadinessProbe } from '../observability/readiness.js';
 
 export interface WebhookBridgeHandle {
   address: {
@@ -18,6 +19,7 @@ export async function createWebhookBridgeServer(input: {
   config: BridgeConfig;
   service: CodexFeishuService;
   logger: Logger;
+  readiness?: ServiceReadinessProbe;
 }): Promise<WebhookBridgeHandle> {
   const eventDispatcher = new lark.EventDispatcher({
     encryptKey: input.config.feishu.encrypt_key,
@@ -70,17 +72,23 @@ export async function createWebhookBridgeServer(input: {
     }
 
     if (request.url === '/healthz' || request.url === '/readyz') {
-      response.statusCode = 200;
+      const readiness = input.readiness?.snapshot() ?? {
+        ok: true,
+        ready: true,
+        service: input.config.service.name,
+        transport: 'webhook',
+        stage: 'ready',
+        startupWarnings: 0,
+        startupErrors: 0,
+        timestamp: new Date().toISOString(),
+      };
+      response.statusCode = request.url === '/readyz' ? (readiness.ready ? 200 : 503) : (readiness.ok ? 200 : 503);
       response.setHeader('content-type', 'application/json; charset=utf-8');
       response.end(
         JSON.stringify({
-          ok: true,
-          ready: request.url === '/readyz',
-          transport: 'webhook',
-          service: input.config.service.name,
+          ...readiness,
           event_path: input.config.feishu.event_path,
           card_path: input.config.feishu.card_path,
-          timestamp: new Date().toISOString(),
         }),
       );
       return;
@@ -118,6 +126,12 @@ export async function createWebhookBridgeServer(input: {
     },
     'Feishu webhook bridge started',
   );
+  input.readiness?.markReady({
+    host: input.config.feishu.host,
+    port,
+    eventPath: input.config.feishu.event_path,
+    cardPath: input.config.feishu.card_path,
+  });
 
   return {
     address: {
@@ -142,12 +156,15 @@ export async function startWebhookBridge(input: {
   config: BridgeConfig;
   service: CodexFeishuService;
   logger: Logger;
+  readiness?: ServiceReadinessProbe;
 }): Promise<NodeJS.Signals> {
   const server = await createWebhookBridgeServer(input);
   return waitForShutdownSignal({
     logger: input.logger,
     onShutdown: async (signal) => {
+      input.readiness?.markStopping({ signal, port: server.address.port });
       await server.close();
+      input.readiness?.markStopped({ signal, port: server.address.port });
       input.logger.info({ signal, port: server.address.port }, 'Feishu webhook bridge stopped');
     },
   });

@@ -197,10 +197,16 @@
             <p class="metric-desc">同 chat 内同项目串行，不同 chat 命中同一 <code>project.root</code> 也会自动排队。</p>
           </div>
           <div class="metric-divider" aria-hidden="true"></div>
+            <div class="metric-item">
+              <span class="metric-label">Surface</span>
+              <strong class="metric-title">Wiki / KB / media / run state</strong>
+              <p class="metric-desc">文档检索、多媒体上下文、飞书知识库和运行态回复都在同一入口里。</p>
+            </div>
+          <div class="metric-divider" aria-hidden="true"></div>
           <div class="metric-item">
-            <span class="metric-label">Surface</span>
-            <strong class="metric-title">Wiki / KB / media / run state</strong>
-            <p class="metric-desc">文档检索、多媒体上下文、飞书知识库和运行态回复都在同一入口里。</p>
+            <span class="metric-label">Access</span>
+            <strong class="metric-title">viewer / operator / admin</strong>
+            <p class="metric-desc">项目可见性、会话控制和服务级变更按最小权限分层，而不是所有 chat 一把钥匙。</p>
           </div>
         </section>
 
@@ -384,8 +390,19 @@
                 </svg>
               </div>
               <span class="cap-label">Observability</span>
-              <h3 class="cap-title">审计日志、Prometheus 指标、Grafana 示例</h3>
-              <p class="cap-desc">内置 16 项 Prometheus 指标，支持 Alertmanager 告警和 Grafana 可视化，所有数据本地可控。</p>
+              <h3 class="cap-title">审计日志、健康探针、Prometheus 指标</h3>
+              <p class="cap-desc">内置 <code>/healthz</code>、<code>/readyz</code>、<code>/metrics</code>，支持 Alertmanager 告警和 Grafana 可视化，所有数据本地可控。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 3l6 3v4c0 3.6-2.5 5.9-6 7-3.5-1.1-6-3.4-6-7V6l6-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                  <path d="M8 10l1.5 1.5L12.5 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Access Roles</span>
+              <h3 class="cap-title">viewer / operator / admin 三档角色</h3>
+              <p class="cap-desc">项目可见、会话接管、运行控制和服务重启按最小权限分层，适合从个人 bot 扩到团队共享服务。</p>
             </div>
             <div class="cap-card">
               <div class="cap-icon cap-icon-amber" aria-hidden="true">

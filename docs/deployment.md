@@ -140,9 +140,15 @@ Webhook 模式建议暴露：
 
 返回契约建议按下面理解：
 
-- `/healthz`：进程和 HTTP 面正常，返回 `ok/service/timestamp`
-- `/readyz`：服务当前可接收流量，返回 `ok/ready/service/timestamp`
+- `/healthz`：进程和 HTTP 面正常，返回 `ok/service/stage/timestamp/startupWarnings/startupErrors`
+- `/readyz`：服务当前可接收流量，返回 `ok/ready/service/stage/timestamp/startupWarnings/startupErrors`
 - `/metrics`：Prometheus 文本格式指标
+
+补充：
+
+- `starting` 阶段 `/healthz` 可为 `200`，但 `/readyz` 会返回 `503`
+- `degraded` 或 `stopped` 阶段 `/healthz` / `/readyz` 都会返回 `503`
+- `/metrics` 会暴露 `codex_feishu_service_live`、`codex_feishu_service_ready`、`codex_feishu_startup_warnings`、`codex_feishu_startup_errors`
 
 Prometheus 示例文件：
 

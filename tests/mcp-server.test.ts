@@ -75,7 +75,7 @@ describe('mcp server', () => {
 
     const child = spawn(tsxBin, [cliEntry, 'mcp', '--config', configPath], {
       cwd,
-      env: { ...process.env, CODEX_HOME: codexHome },
+      env: { ...process.env, CODEX_HOME: codexHome, HOME: cwd },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     children.push(child);
