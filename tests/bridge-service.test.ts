@@ -19,6 +19,7 @@ import { RunStateStore } from '../src/state/run-state-store.js';
 import { MemoryStore } from '../src/state/memory-store.js';
 
 const tempDirs: string[] = [];
+const originalCodexHome = process.env.CODEX_HOME;
 const logger = {
   debug: vi.fn(),
   warn: vi.fn(),
@@ -38,6 +39,11 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  if (originalCodexHome === undefined) {
+    delete process.env.CODEX_HOME;
+  } else {
+    process.env.CODEX_HOME = originalCodexHome;
+  }
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -117,6 +123,48 @@ describe('bridge service', () => {
     const lastReply = setup.sendText.mock.calls.at(-1)?.[1] as string;
     expect(lastReply).toContain('thread-1');
     expect(lastReply).toContain('thread-2');
+  });
+
+  it('adopts the latest matching local Codex session and resumes it on the next turn', async () => {
+    const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-codex-home-'));
+    tempDirs.push(codexHome);
+    process.env.CODEX_HOME = codexHome;
+
+    await writeCodexSessionMeta(codexHome, 'thread-adopted', '/tmp/project', '2026-03-11T03:37:22.628Z');
+    const setup = await createService();
+    runCodexTurnMock.mockResolvedValue({
+      sessionId: 'thread-adopted',
+      finalMessage: 'done',
+      stderr: '',
+      exitCode: 0,
+      capabilities: { version: 'v', exec: {}, resume: {} },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('/session adopt latest', { message_id: 'm-adopt' }));
+
+    const sessionKey = buildConversationKey({ tenantKey: 'tenant', chatId: 'chat', actorId: 'user', scope: 'chat' });
+    const conversation = await setup.sessionStore.getConversation(sessionKey);
+    expect(conversation?.projects.default?.thread_id).toBe('thread-adopted');
+
+    await setup.service.handleIncomingMessage(buildMessage('继续这个会话', { message_id: 'm-follow-up' }));
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.sessionId).toBe('thread-adopted');
+  });
+
+  it('lists adoptable local Codex sessions for the current project', async () => {
+    const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-codex-home-'));
+    tempDirs.push(codexHome);
+    process.env.CODEX_HOME = codexHome;
+
+    await writeCodexSessionMeta(codexHome, 'thread-current', '/tmp/project', '2026-03-11T03:37:22.628Z');
+    await writeCodexSessionMeta(codexHome, 'thread-old-root', '/tmp/project-bridge', '2026-03-10T12:06:50.670Z');
+    const setup = await createService();
+
+    await setup.service.handleIncomingMessage(buildMessage('/session adopt list', { message_id: 'm-adopt-list' }));
+
+    const lastReply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(lastReply).toContain('thread-current');
+    expect(lastReply).toContain('thread-old-root');
+    expect(lastReply).toContain('match: exact-root');
   });
 
   it('cancels an active run and records cancelled status', async () => {
@@ -1091,4 +1139,19 @@ async function waitFor(assertion: () => void): Promise<void> {
     }
   }
   assertion();
+}
+
+async function writeCodexSessionMeta(codexHome: string, threadId: string, cwd: string, timestamp: string): Promise<void> {
+  const filePath = path.join(codexHome, 'sessions', '2026', '03', `${threadId}.jsonl`);
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const sessionMeta = {
+    timestamp,
+    type: 'session_meta',
+    payload: {
+      id: threadId,
+      cwd,
+      timestamp,
+    },
+  };
+  await fs.writeFile(filePath, `${JSON.stringify(sessionMeta)}\n`, 'utf8');
 }

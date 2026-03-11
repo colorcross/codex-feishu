@@ -21,6 +21,7 @@ import { resolveMessageResources } from '../feishu/message-resource.js';
 import { MemoryStore } from '../state/memory-store.js';
 import { retrieveMemoryContext, type MemoryContext } from '../memory/retrieve.js';
 import { summarizeThreadTurn } from '../memory/summarize.js';
+import { CodexSessionIndex, renderSessionMatchLabel, type IndexedCodexSession } from '../codex/session-index.js';
 
 interface ActiveRunHandle {
   runId: string;
@@ -44,6 +45,7 @@ export class CodexFeishuService {
     private readonly idempotencyStore: IdempotencyStore = new IdempotencyStore(config.storage.dir),
     private readonly runStateStore: RunStateStore = new RunStateStore(config.storage.dir),
     private readonly memoryStore: MemoryStore = new MemoryStore(config.storage.dir),
+    private readonly codexSessionIndex: CodexSessionIndex = new CodexSessionIndex(),
   ) {}
 
   public async recoverRuntimeState(): Promise<RunState[]> {
@@ -171,7 +173,13 @@ export class CodexFeishuService {
         await this.handleWikiCommand(context, selectionKey, command.action, command.value, command.extra, command.target, command.role);
         return;
       case 'session':
-        await this.handleSessionCommand(context, selectionKey, command.action, command.threadId);
+        const sessionArgument = command.action === 'adopt' ? command.target : command.threadId;
+        await this.handleSessionCommand(
+          context,
+          selectionKey,
+          command.action,
+          sessionArgument,
+        );
         return;
       case 'prompt': {
         const prompt = normalizeIncomingText(command.prompt) || (context.attachments.length > 0 ? '请结合这条飞书消息附带的多媒体信息继续处理。' : '');
@@ -663,7 +671,7 @@ export class CodexFeishuService {
   private async handleSessionCommand(
     context: IncomingMessageContext,
     selectionKey: string,
-    action: 'list' | 'use' | 'new' | 'drop',
+    action: 'list' | 'use' | 'new' | 'drop' | 'adopt',
     threadId?: string,
   ): Promise<void> {
     const projectContext = await this.resolveProjectContext(context, selectionKey);
@@ -710,8 +718,110 @@ export class CodexFeishuService {
         }
         await this.sessionStore.dropProjectSession(projectContext.sessionKey, projectContext.projectAlias, targetThreadId);
         await this.sendTextReply(context.chat_id, `已删除会话: ${targetThreadId}`, context.message_id, context.text);
+        return;
+      }
+      case 'adopt': {
+        await this.handleSessionAdoptCommand(context, projectContext, threadId);
+        return;
       }
     }
+  }
+
+  private async handleSessionAdoptCommand(
+    context: IncomingMessageContext,
+    projectContext: {
+      projectAlias: string;
+      project: ProjectConfig;
+      sessionKey: string;
+      queueKey: string;
+    },
+    target?: string,
+  ): Promise<void> {
+    const normalizedTarget = target?.trim();
+    if (normalizedTarget === 'list') {
+      const candidates = await this.codexSessionIndex.listProjectSessions(projectContext.project.root, 10);
+      if (candidates.length === 0) {
+        await this.sendTextReply(
+          context.chat_id,
+          [
+            `项目: ${projectContext.projectAlias}`,
+            `项目根: ${projectContext.project.root}`,
+            '未找到可接管的本地 Codex 会话。',
+          ].join('\n'),
+          context.message_id,
+          context.text,
+        );
+        return;
+      }
+
+      const lines = candidates.map((session, index) =>
+        [
+          `${index + 1}. ${session.threadId}`,
+          `   updated_at: ${session.updatedAt}`,
+          `   cwd: ${session.cwd}`,
+          `   match: ${renderSessionMatch(session)}`,
+          `   source: ${session.source}`,
+        ].join('\n'),
+      );
+      await this.sendTextReply(
+        context.chat_id,
+        [
+          `项目: ${projectContext.projectAlias}`,
+          `项目根: ${projectContext.project.root}`,
+          '可接管的本地 Codex 会话:',
+          '',
+          ...lines,
+        ].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    const adopted = !normalizedTarget || normalizedTarget === 'latest'
+      ? await this.codexSessionIndex.findLatestProjectSession(projectContext.project.root)
+      : await this.codexSessionIndex.findProjectSessionById(projectContext.project.root, normalizedTarget);
+    if (!adopted) {
+      await this.sendTextReply(
+        context.chat_id,
+        [
+          `项目: ${projectContext.projectAlias}`,
+          normalizedTarget ? `未找到可接管的本地 Codex 会话: ${normalizedTarget}` : '未找到可接管的本地 Codex 会话。',
+          '用法: /session adopt latest | /session adopt list | /session adopt <thread_id>',
+        ].join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+
+    await this.sessionStore.upsertProjectSession(projectContext.sessionKey, projectContext.projectAlias, {
+      thread_id: adopted.threadId,
+    });
+    await this.auditLog.append({
+      type: 'session.adopted',
+      chat_id: context.chat_id,
+      actor_id: context.actor_id,
+      project_alias: projectContext.projectAlias,
+      conversation_key: projectContext.sessionKey,
+      thread_id: adopted.threadId,
+      source_cwd: adopted.cwd,
+      source: adopted.source,
+      match_kind: adopted.matchKind,
+    });
+    await this.sendTextReply(
+      context.chat_id,
+      [
+        `项目: ${projectContext.projectAlias}`,
+        `已接管本地 Codex 会话: ${adopted.threadId}`,
+        `match: ${renderSessionMatch(adopted)}`,
+        `source cwd: ${adopted.cwd}`,
+        `updated_at: ${adopted.updatedAt}`,
+        '下一条消息会直接续接这个会话。',
+      ].join('\n'),
+      context.message_id,
+      context.text,
+    );
   }
 
   private async handleMemoryCommand(
@@ -1876,4 +1986,9 @@ function renderMemorySection(title: string, items: Array<{ title: string; conten
     used += line.length;
   }
   return lines.length > 2 ? lines : [];
+}
+
+function renderSessionMatch(session: Pick<IndexedCodexSession, 'matchKind' | 'matchScore'>): string {
+  const label = renderSessionMatchLabel(session);
+  return session.matchScore ? `${label} (${session.matchScore})` : label;
 }

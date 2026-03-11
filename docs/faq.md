@@ -15,9 +15,17 @@
 ```text
 /session list
 /session use <thread_id>
+/session adopt latest
+/session adopt list
+/session adopt <thread_id>
 /session new
 /session drop [thread_id]
 ```
+
+说明：
+
+- `/session use` 只切换桥接器已经保存过的会话
+- `/session adopt` 会去本机 `~/.codex/sessions` 里找当前项目可匹配的原生 Codex CLI 会话，再把它接管为当前项目的 active session
 
 ## 3. 群聊为什么默认必须 `@机器人`？
 

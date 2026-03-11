@@ -39,7 +39,7 @@ Codex Feishu 让飞书消息直接进入可续接的 Codex 会话。项目可路
 - `long-connection` 和 `webhook` 双模式接入飞书
 - 项目级路由：`/project <alias>` 切换当前仓库
 - Codex 会话续接：新会话走 `codex exec`，续会话走 `codex exec resume`
-- 飞书命令控制：`/status`、`/new`、`/cancel`、`/session list|use|new|drop`
+- 飞书命令控制：`/status`、`/new`、`/cancel`、`/session list|use|new|drop|adopt`
 - 项目知识库搜索：`/kb status`、`/kb search <query>`
 - 多媒体上下文透传：图片、文件、音频、富文本消息会带元数据进入 Codex 提示词；下载文本类附件和 `doc/docx/odt/rtf` 后会自动摘录内容片段；图片可选生成简短视觉说明
 - 飞书知识库接入：`/wiki spaces`、`/wiki search <query>`、`/wiki read <url|token>`
@@ -171,6 +171,8 @@ codex-feishu serve --detach
 - `/wiki revoke <space_id> <member_type> <member_id> [member|admin]`
 - `/session list`
 - `/session use <thread_id>`
+- `/session adopt latest`
+- `/session adopt list`
 
 ## 一个最小配置示例
 

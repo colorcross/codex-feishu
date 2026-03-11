@@ -11,6 +11,10 @@ describe('bridge commands', () => {
     expect(parseBridgeCommand('/session use thread-123')).toEqual({ kind: 'session', action: 'use', threadId: 'thread-123' });
     expect(parseBridgeCommand('/session new')).toEqual({ kind: 'session', action: 'new' });
     expect(parseBridgeCommand('/session drop')).toEqual({ kind: 'session', action: 'drop', threadId: undefined });
+    expect(parseBridgeCommand('/session adopt')).toEqual({ kind: 'session', action: 'adopt', target: undefined });
+    expect(parseBridgeCommand('/session adopt latest')).toEqual({ kind: 'session', action: 'adopt', target: 'latest' });
+    expect(parseBridgeCommand('/session adopt list')).toEqual({ kind: 'session', action: 'adopt', target: 'list' });
+    expect(parseBridgeCommand('/session adopt thread-123')).toEqual({ kind: 'session', action: 'adopt', target: 'thread-123' });
     expect(parseBridgeCommand('/cancel')).toEqual({ kind: 'cancel' });
     expect(parseBridgeCommand('/kb status')).toEqual({ kind: 'kb', action: 'status' });
     expect(parseBridgeCommand('/kb search install')).toEqual({ kind: 'kb', action: 'search', query: 'install' });
@@ -134,6 +138,8 @@ describe('bridge commands', () => {
     expect(helpText).toContain('/projects');
     expect(helpText).toContain('/new');
     expect(helpText).toContain('/session list');
+    expect(helpText).toContain('/session adopt latest');
+    expect(helpText).toContain('/session adopt list');
     expect(helpText).toContain('/cancel');
     expect(helpText).toContain('/kb search');
     expect(helpText).toContain('/memory status');

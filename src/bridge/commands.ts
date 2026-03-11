@@ -16,6 +16,7 @@ export type BridgeCommand =
   | { kind: 'wiki'; action: 'spaces' | 'search' | 'read' | 'create' | 'rename' | 'copy' | 'move' | 'members' | 'grant' | 'revoke'; value?: string; extra?: string; target?: string; role?: string }
   | { kind: 'project'; alias?: string }
   | { kind: 'session'; action: 'list' | 'use' | 'new' | 'drop'; threadId?: string }
+  | { kind: 'session'; action: 'adopt'; target?: string }
   | { kind: 'prompt'; prompt: string };
 
 export function parseBridgeCommand(input: string): BridgeCommand {
@@ -113,6 +114,9 @@ export function buildHelpText(): string {
     '/session use <thread_id> 切换到指定会话',
     '/session new 让下一条消息新开会话',
     '/session drop [thread_id] 删除指定或当前会话',
+    '/session adopt latest 接管当前项目最近的本地 Codex 会话',
+    '/session adopt list 列出当前项目可接管的本地 Codex 会话',
+    '/session adopt <thread_id> 接管指定本地 Codex 会话',
     '',
     '直接发送文本会进入当前项目的 Codex 会话。',
   ].join('\n');
@@ -131,6 +135,8 @@ function parseSessionCommand(argument: string): BridgeCommand {
       return { kind: 'session', action: 'new' };
     case 'drop':
       return { kind: 'session', action: 'drop', threadId };
+    case 'adopt':
+      return { kind: 'session', action: 'adopt', target: threadId };
     default:
       return { kind: 'prompt', prompt: `/session${argument ? ` ${argument}` : ''}`.trim() };
   }
