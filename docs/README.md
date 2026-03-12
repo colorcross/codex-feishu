@@ -30,7 +30,7 @@
   - 常用命令
   - `/status detail` / `/admin runs` / 配置回滚
   - `reply_mode` / 富文本 / 卡片
-  - 自然语言命令触发与确认机制
+  - 自然语言命令触发与直接执行
   - 管理员动态接入与 `/admin` 命令
   - `/session adopt` 续接本地 Codex 会话
   - `queued` / 仓库占用提示

@@ -143,8 +143,6 @@ function buildWebhookConfig(): BridgeConfig {
       default_project: 'default',
       project_switch_auto_adopt_latest: false,
       reply_mode: 'text',
-      natural_language_command_confirmation: true,
-      natural_language_confirmation_ttl_seconds: 90,
       emit_progress_updates: true,
       progress_update_interval_ms: 4000,
       metrics_host: '127.0.0.1',

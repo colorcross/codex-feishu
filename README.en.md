@@ -158,7 +158,7 @@ Feishu object tools and status cards:
 - `/doc read <url|token>` and `/doc create <title>` for native Feishu Docs
 - `/task list|get|create|complete` for Feishu Tasks
 - `/base tables|records|create|update` for Feishu Base
-- write operations require confirmation before execution
+- write operations execute directly and update the same reply with current status
 - runtime cards expose phases such as `queued / preparing context / generating / executing / completed / failed / cancelled`
 
 ## 📚 Documentation Navigation

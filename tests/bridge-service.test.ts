@@ -121,21 +121,14 @@ describe('bridge service', () => {
     expect(replyBody).not.toContain('运行:');
   });
 
-  it('uses Feishu post messages when reply_mode=post', async () => {
+  it('uses Feishu post messages for non-runtime replies when reply_mode=post', async () => {
     const setup = await createService({
       service: {
         reply_mode: 'post',
       },
     });
-    runCodexTurnMock.mockResolvedValue({
-      sessionId: 'thread-1',
-      finalMessage: 'done',
-      stderr: '',
-      exitCode: 0,
-      capabilities: { version: 'codex-cli 0.98.0', exec: {}, resume: {} },
-    });
 
-    await setup.service.handleIncomingMessage(buildMessage('post 模式测试', { message_id: 'm-post-mode' }));
+    await setup.service.handleIncomingMessage(buildMessage('/help', { message_id: 'm-post-mode' }));
     expect(setup.sendPost).toHaveBeenCalled();
     expect(setup.sendText).not.toHaveBeenCalled();
   });
@@ -182,7 +175,7 @@ describe('bridge service', () => {
     expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('最终结果');
   });
 
-  it('requires confirmation before executing a natural language admin mutation', async () => {
+  it('executes natural language admin mutations immediately', async () => {
     const setup = await createService({
       security: {
         admin_chat_ids: ['chat'],
@@ -190,19 +183,31 @@ describe('bridge service', () => {
     });
 
     await setup.service.handleIncomingMessage(buildMessage('重启服务', { message_id: 'm-confirm-request' }));
-    expect(setup.restart).not.toHaveBeenCalled();
-    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('请在 90 秒内回复“确认”继续');
-
-    await setup.service.handleIncomingMessage(buildMessage('确认', { message_id: 'm-confirm-apply' }));
     expect(setup.restart).toHaveBeenCalledTimes(1);
   });
 
-  it('requires confirmation before executing a slash write command for Feishu objects', async () => {
+  it('executes slash write commands for Feishu objects immediately', async () => {
     const setup = await createService();
+    setup.feishuClient.createSdkClient.mockReturnValue({
+      task: {
+        v2: {
+          task: {
+            create: vi.fn().mockResolvedValue({
+              data: {
+                task: {
+                  guid: 'task-guid-1',
+                  summary: '修复线上告警',
+                },
+              },
+            }),
+          },
+        },
+      },
+    });
 
     await setup.service.handleIncomingMessage(buildMessage('/task create 修复线上告警', { message_id: 'm-task-create' }));
 
-    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('请在 90 秒内回复“确认”继续');
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('已创建任务');
   });
 
   it('uses Feishu cards for generic replies when reply_mode=card', async () => {
@@ -676,9 +681,6 @@ describe('bridge service', () => {
     });
 
     await setup.service.handleIncomingMessage(buildMessage('切到长话短说项目，看昨晚都干了啥', { message_id: 'm-natural-project' }));
-    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('请在 90 秒内回复“确认”继续');
-
-    await setup.service.handleIncomingMessage(buildMessage('确认', { message_id: 'm-natural-project-confirm' }));
     await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(1));
 
     expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.workdir).toBe('/tmp/changhua');
@@ -696,12 +698,10 @@ describe('bridge service', () => {
     });
 
     await setup.service.handleIncomingMessage(buildMessage('帮我把项目切到 repo-b 然后查看状态', { message_id: 'm-followup-status' }));
-    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('请在 90 秒内回复“确认”继续');
-
-    await setup.service.handleIncomingMessage(buildMessage('确认', { message_id: 'm-followup-status-confirm' }));
 
     expect(runCodexTurnMock).not.toHaveBeenCalled();
-    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('项目 repo-b 还没有会话');
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('项目: repo-b');
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('当前会话: 未开始');
   });
 
   it('injects attachment metadata into the Codex prompt for media messages', async () => {
@@ -1547,8 +1547,6 @@ function buildConfig(dir: string, overrides: TestConfigOverrides): BridgeConfig 
       default_project: 'default',
       project_switch_auto_adopt_latest: false,
       reply_mode: 'text',
-      natural_language_command_confirmation: true,
-      natural_language_confirmation_ttl_seconds: 90,
       emit_progress_updates: false,
       progress_update_interval_ms: 4000,
       metrics_host: '127.0.0.1',

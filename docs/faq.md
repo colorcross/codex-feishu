@@ -101,9 +101,9 @@ codex-feishu audit tail --limit 20
 
 补充：
 
-- 收到消息后会先回一条状态提示，明确显示 `消息接收` 和 `处理状态`
+- 收到消息后会在同一条回复里直接显示当前 `处理状态`
 - 同一轮运行的进度和完成结果会优先回写到同一条飞书回复或卡片
-- 变更类自然语言命令默认要求先回复 `确认`
+- 变更类自然语言命令会直接执行，不再追加确认消息
 
 如果没有明确的卡片交互需求，推荐优先用：
 
@@ -150,9 +150,9 @@ allowed_project_roots = ["/"]
 - `codex-feishu upgrade --check`：查看 npm 是否有更新
 - `codex-feishu mcp`：暴露 stdio MCP 服务给外部应用
   - 可直接调用 `project.switch`、`session.adopt`
-  - 也可通过 `command.interpret`、`command.execute` 对自然语言控制命令做确认式执行
+  - 也可通过 `command.interpret`、`command.execute` 对自然语言控制命令做解释和直接执行
 
-如果你是在飞书里联调，还会看到一条即时状态提示，明确显示消息是否已接收以及当前处理状态。
+如果你是在飞书里联调，当前处理状态会直接回写到同一条飞书回复或卡片里。
 
 飞书侧进一步排障时，可直接用：
 

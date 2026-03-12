@@ -87,7 +87,7 @@
             <span class="pulse-dot" aria-hidden="true"></span>
             v0.1.11 已发布
           </span>
-          <span class="announcement-text">新增飞书文档 / 多维表格 / 任务工具面，并补齐状态卡片阶段与确认式写操作</span>
+          <span class="announcement-text">新增飞书文档 / 多维表格 / 任务工具面，并补齐状态卡片阶段与同消息回写</span>
           <a href="https://github.com/colorcross/codex-feishu/releases" class="announcement-link">查看 Release →</a>
         </div>
 
@@ -105,7 +105,7 @@
               <span class="title-line title-accent">的控制面。</span>
             </h1>
             <p class="hero-desc">
-              Codex Feishu 让飞书消息直接进入可续接的 Codex CLI 会话。项目绑定按 <code>chat_id</code> 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见；支持富文本、卡片、确认式自然语言命令，以及通过 MCP 接给其他应用。
+              Codex Feishu 让飞书消息直接进入可续接的 Codex CLI 会话。项目绑定按 <code>chat_id</code> 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见；支持富文本、卡片、自然语言命令直达执行，以及通过 MCP 接给其他应用。
             </p>
             <div class="hero-actions">
               <a class="btn btn-primary" href="https://www.npmjs.com/package/codex-feishu">
@@ -152,8 +152,7 @@
                 <span class="demo-title">Run State Preview</span>
                 <span class="demo-badge demo-badge-teal">same repo, no collisions</span>
               </div>
-              <pre class="demo-code"><code><span class="c-teal">消息接收:</span> success
-<span class="c-amber">处理状态:</span> queued
+              <pre class="demo-code"><code><span class="c-amber">处理状态:</span> queued
 <span class="c-muted">项目:</span>    repo-a
 
 当前仓库正在被其他会话操作，

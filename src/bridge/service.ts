@@ -8,8 +8,6 @@ import {
   isReadOnlyCommand,
   normalizeIncomingText,
   parseBridgeCommand,
-  parseConfirmationIntent,
-  requiresCommandConfirmation,
   type MemoryCommandFilters,
   type MemoryScopeTarget,
 } from './commands.js';
@@ -40,7 +38,6 @@ import { buildFeishuPost, truncateForFeishuCard } from '../feishu/text.js';
 import { ConfigHistoryStore, type ConfigSnapshot } from '../state/config-history-store.js';
 import { loadBridgeConfig } from '../config/load.js';
 import { ensureDir, writeUtf8Atomic } from '../utils/fs.js';
-import { PendingCommandStore, type PendingCommandRecord } from '../state/pending-command-store.js';
 import { canAccessGlobalCapability, canAccessProject, canAccessProjectCapability, describeMinimumRole, filterAccessibleProjects, resolveProjectAccessRole, type AccessRole } from '../security/access.js';
 import { adoptProjectSession as adoptSharedProjectSession, listBridgeSessions as listSharedBridgeSessions, switchProjectBinding as switchSharedProjectBinding } from '../control-plane/project-session.js';
 import { getProjectArchiveDir, getProjectAuditDir, getProjectAuditFile, getProjectCacheDir, getProjectDownloadsDir, getProjectTempDir } from '../projects/paths.js';
@@ -97,7 +94,6 @@ export class CodexFeishuService {
     private readonly runtimeControl?: RuntimeControl,
     private readonly adminAuditLog: AuditLog = new AuditLog(config.storage.dir, 'admin-audit.jsonl'),
     private readonly configHistoryStore: ConfigHistoryStore = new ConfigHistoryStore(config.storage.dir),
-    private readonly pendingCommandStore: PendingCommandStore = new PendingCommandStore(config.storage.dir),
   ) {}
 
   public async recoverRuntimeState(): Promise<RunState[]> {
@@ -227,12 +223,6 @@ export class CodexFeishuService {
 
     const normalizedText = normalizeIncomingText(context.text);
     const selectionKey = await this.getSelectionConversationKey(context);
-    const confirmationIntent = parseConfirmationIntent(normalizedText);
-    if (confirmationIntent) {
-      await this.handlePendingCommandConfirmation(context, selectionKey, confirmationIntent);
-      return;
-    }
-
     const command = parseBridgeCommand(context.text);
     this.metrics?.recordIncomingMessage(context.chat_type, command.kind);
     await this.auditLog.append({
@@ -245,34 +235,6 @@ export class CodexFeishuService {
       message_type: context.message_type,
       attachment_count: context.attachments.length,
     });
-    const isNaturalLanguageCommand = !normalizedText.startsWith('/') && command.kind !== 'prompt';
-    if (this.shouldRequireCommandConfirmation(command, isNaturalLanguageCommand)) {
-      await this.pendingCommandStore.save({
-        chatId: context.chat_id,
-        actorId: context.actor_id,
-        sourceText: context.text,
-        summary: describeBridgeCommand(command),
-        command,
-        ttlSeconds: this.config.service.natural_language_confirmation_ttl_seconds,
-      });
-      await this.auditLog.append({
-        type: 'command.confirmation.requested',
-        chat_id: context.chat_id,
-        actor_id: context.actor_id,
-        command: describeBridgeCommand(command),
-      });
-      await this.sendTextReply(
-        context.chat_id,
-        [
-          `检测到命令意图: ${describeBridgeCommand(command)}`,
-          '这是一条会改变会话、配置、运行状态或飞书对象的命令。',
-          `请在 ${this.config.service.natural_language_confirmation_ttl_seconds} 秒内回复“确认”继续，或回复“取消”放弃。`,
-        ].join('\n'),
-        context.message_id,
-        context.text,
-      );
-      return;
-    }
 
     try {
       switch (command.kind) {
@@ -2914,16 +2876,6 @@ export class CodexFeishuService {
     return [`处理状态: ${status}`, `项目: ${projectAlias}`, '', detail].join('\n');
   }
 
-  private shouldRequireCommandConfirmation(command: ReturnType<typeof parseBridgeCommand>, isNaturalLanguageCommand: boolean): boolean {
-    if (!requiresCommandConfirmation(command)) {
-      return false;
-    }
-    if (isNaturalLanguageCommand && this.config.service.natural_language_command_confirmation) {
-      return true;
-    }
-    return command.kind === 'doc' || command.kind === 'task' || command.kind === 'base';
-  }
-
   private buildQueuedStatusDetail(
     projectAlias: string,
     reason: QueuedExecutionNotice['reason'],
@@ -3341,80 +3293,6 @@ export class CodexFeishuService {
     recent.push(now);
     this.chatRateWindows.set(key, recent);
     return null;
-  }
-
-  private async handlePendingCommandConfirmation(
-    context: IncomingMessageContext,
-    selectionKey: string,
-    intent: 'confirm' | 'cancel',
-  ): Promise<void> {
-    const pending = await this.pendingCommandStore.get(context.chat_id, context.actor_id);
-    if (!pending) {
-      await this.sendTextReply(context.chat_id, '当前没有待确认的命令。', context.message_id, context.text);
-      return;
-    }
-
-    if (intent === 'cancel') {
-      await this.pendingCommandStore.clear(context.chat_id, context.actor_id);
-      await this.auditLog.append({
-        type: 'command.confirmation.cancelled',
-        chat_id: context.chat_id,
-        actor_id: context.actor_id,
-        command: pending.summary,
-      });
-      await this.sendTextReply(context.chat_id, `已取消待确认命令: ${pending.summary}`, context.message_id, context.text);
-      return;
-    }
-
-    const confirmed = await this.pendingCommandStore.consume(context.chat_id, context.actor_id);
-    if (!confirmed) {
-      await this.sendTextReply(context.chat_id, '待确认命令已过期，请重新发送。', context.message_id, context.text);
-      return;
-    }
-    await this.auditLog.append({
-      type: 'command.confirmation.confirmed',
-      chat_id: context.chat_id,
-      actor_id: context.actor_id,
-      command: confirmed.summary,
-    });
-    await this.executeConfirmedCommand(context, selectionKey, confirmed);
-  }
-
-  private async executeConfirmedCommand(
-    context: IncomingMessageContext,
-    selectionKey: string,
-    pending: PendingCommandRecord,
-  ): Promise<void> {
-    switch (pending.command.kind) {
-      case 'project':
-        await this.handleProjectCommand(context, selectionKey, pending.command.alias, pending.command.followupPrompt);
-        return;
-      case 'new':
-        await this.handleNewCommand(context, selectionKey);
-        return;
-      case 'cancel':
-        await this.handleCancelCommand(context, selectionKey);
-        return;
-      case 'doc':
-        await this.handleDocCommand(context, selectionKey, pending.command.action, pending.command.value, pending.command.extra);
-        return;
-      case 'task':
-        await this.handleTaskCommand(context, selectionKey, pending.command.action, pending.command.value);
-        return;
-      case 'base':
-        await this.handleBaseCommand(context, selectionKey, pending.command.action, pending.command.appToken, pending.command.tableId, pending.command.recordId, pending.command.value);
-        return;
-      case 'session': {
-        const sessionArgument = pending.command.action === 'adopt' ? pending.command.target : pending.command.threadId;
-        await this.handleSessionCommand(context, selectionKey, pending.command.action, sessionArgument);
-        return;
-      }
-      case 'admin':
-        await this.handleAdminCommand(context, selectionKey, pending.command);
-        return;
-      default:
-        await this.sendTextReply(context.chat_id, `这条命令不需要确认: ${pending.summary}`, context.message_id, context.text);
-    }
   }
 
   private applyAdminListValues(resource: 'viewer' | 'operator' | 'admin' | 'service-observer' | 'service-restart' | 'config-admin' | 'group' | 'chat', values: string[]): void {

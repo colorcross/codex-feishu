@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import packageJson from '../../package.json' with { type: 'json' };
-import { buildHelpText, describeBridgeCommand, parseBridgeCommand, requiresCommandConfirmation, type BridgeCommand } from '../bridge/commands.js';
+import { buildHelpText, describeBridgeCommand, parseBridgeCommand, type BridgeCommand } from '../bridge/commands.js';
 import { buildQueueKey } from '../bridge/service.js';
 import { adoptProjectSession as adoptSharedProjectSession, listBridgeSessions as listSharedBridgeSessions, renderSessionMatch, resolveProjectContext as resolveSharedProjectContext, switchProjectBinding as switchSharedProjectBinding, type ConversationRef, type ResolvedProjectContext } from '../control-plane/project-session.js';
 import { CodexSessionIndex } from '../codex/session-index.js';
@@ -162,14 +162,13 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'command.execute',
-    description: 'Execute supported slash commands or natural-language control intents over MCP. Mutating actions require confirmed=true.',
+    description: 'Execute supported slash commands or natural-language control intents over MCP.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
       properties: {
         ...CONVERSATION_SCHEMA_PROPERTIES,
         text: { type: 'string' },
-        confirmed: { type: 'boolean' },
       },
       required: ['chatId', 'text'],
     },
@@ -223,7 +222,7 @@ export async function startMcpServer(options: McpServerOptions): Promise<void> {
   }
 
   const parser = new StdioMessageParser(async (request) => {
-    const response = await handleRequest(request, options);
+    const response = await handleMcpRequest(request, options);
     if (response) {
       process.stdout.write(encodeMessage(response));
     }
@@ -238,7 +237,7 @@ export async function startMcpServer(options: McpServerOptions): Promise<void> {
   process.stdin.resume();
 }
 
-async function handleRequest(request: JsonRpcRequest, options: { cwd: string; configPath?: string }): Promise<JsonRpcResponse | null> {
+export async function handleMcpRequest(request: JsonRpcRequest, options: { cwd: string; configPath?: string }): Promise<JsonRpcResponse | null> {
   if (request.method === 'notifications/initialized') {
     return null;
   }
@@ -396,7 +395,6 @@ async function handleToolCall(params: Record<string, unknown>, options: { cwd: s
         runStateStore,
         conversation: parseConversationInput(argumentsObject),
         text: requireString(argumentsObject, 'text'),
-        confirmed: argumentsObject.confirmed === true,
       });
       return buildToolResult(execution.text, execution.structured);
     }
@@ -497,7 +495,7 @@ async function startHttpMcpServer(options: McpServerOptions, config: BridgeConfi
         }
         const body = await readRequestBody(request);
         const payload = JSON.parse(body) as JsonRpcRequest;
-        const rpcResponse = await handleRequest(payload, options);
+        const rpcResponse = await handleMcpRequest(payload, options);
         if (rpcResponse) {
           sessions.get(sessionId)?.response.write(`event: message\ndata: ${JSON.stringify(rpcResponse)}\n\n`);
         }
@@ -510,7 +508,7 @@ async function startHttpMcpServer(options: McpServerOptions, config: BridgeConfi
       if (request.method === 'POST' && url.pathname === rpcPath) {
         const body = await readRequestBody(request);
         const payload = JSON.parse(body) as JsonRpcRequest;
-        const rpcResponse = await handleRequest(payload, options);
+        const rpcResponse = await handleMcpRequest(payload, options);
         response.statusCode = rpcResponse ? 200 : 204;
         response.setHeader('content-type', 'application/json; charset=utf-8');
         response.end(rpcResponse ? JSON.stringify(rpcResponse) : '');
@@ -607,7 +605,6 @@ function interpretBridgeCommand(text: string): { text: string; structured: unkno
         type: 'prompt',
         prompt: command.prompt,
         supported: false,
-        requiresConfirmation: false,
       },
     };
   }
@@ -616,7 +613,6 @@ function interpretBridgeCommand(text: string): { text: string; structured: unkno
   return {
     text: [
       `命令摘要: ${describeBridgeCommand(command)}`,
-      `需要确认: ${requiresCommandConfirmation(command) ? 'yes' : 'no'}`,
       `MCP 支持: ${supported ? 'yes' : 'no'}`,
     ].join('\n'),
     structured: {
@@ -624,7 +620,6 @@ function interpretBridgeCommand(text: string): { text: string; structured: unkno
       command,
       summary: describeBridgeCommand(command),
       supported,
-      requiresConfirmation: requiresCommandConfirmation(command),
     },
   };
 }
@@ -638,7 +633,6 @@ async function executeMcpCommand(input: {
   runStateStore: RunStateStore;
   conversation: McpConversationInput;
   text: string;
-  confirmed: boolean;
 }): Promise<{ text: string; structured: unknown }> {
   const command = parseBridgeCommand(input.text);
   if (command.kind === 'prompt') {
@@ -659,19 +653,6 @@ async function executeMcpCommand(input: {
         executed: false,
         summary: describeBridgeCommand(command),
         supported: false,
-        command,
-      },
-    };
-  }
-
-  if (requiresCommandConfirmation(command) && !input.confirmed) {
-    return {
-      text: `命令需要确认后才能执行: ${describeBridgeCommand(command)}`,
-      structured: {
-        executed: false,
-        summary: describeBridgeCommand(command),
-        supported: true,
-        requiresConfirmation: true,
         command,
       },
     };

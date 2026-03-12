@@ -197,7 +197,6 @@ export function buildHelpText(): string {
     '',
     '也支持高置信度自然语言触发，例如：',
     '查看状态 / 帮我看下当前状态 / 当前项目是哪个 / 项目列表 / 新会话 / 取消当前任务 / 切换到项目 repo-a / 帮我把项目切到 repo-a 然后查看状态 / 接管最新会话 / 重启服务',
-    '涉及切换、取消、重启、配置修改等变更操作时，会要求先回复“确认”再执行。',
     '',
     '直接发送文本会进入当前项目的 Codex 会话。',
   ].join('\n');
@@ -252,37 +251,6 @@ export function describeBridgeCommand(command: BridgeCommand): string {
   }
 }
 
-export function requiresCommandConfirmation(command: BridgeCommand): boolean {
-  switch (command.kind) {
-    case 'cancel':
-    case 'new':
-      return true;
-    case 'project':
-      return Boolean(command.alias);
-    case 'doc':
-      return command.action === 'create';
-    case 'task':
-      return command.action === 'create' || command.action === 'complete';
-    case 'base':
-      return command.action === 'create' || command.action === 'update';
-    case 'session':
-      return command.action === 'use' || command.action === 'new' || command.action === 'drop' || command.action === 'adopt';
-    case 'admin':
-      if (command.resource === 'service') {
-        return command.action === 'restart';
-      }
-      if (command.resource === 'config') {
-        return command.action === 'rollback';
-      }
-      if (command.resource === 'project') {
-        return command.action === 'add' || command.action === 'remove' || command.action === 'set';
-      }
-      return command.action === 'add' || command.action === 'remove';
-    default:
-      return false;
-  }
-}
-
 export function isReadOnlyCommand(command: BridgeCommand): boolean {
   switch (command.kind) {
     case 'help':
@@ -319,23 +287,6 @@ export function isReadOnlyCommand(command: BridgeCommand): boolean {
     default:
       return false;
   }
-}
-
-export function parseConfirmationIntent(input: string): 'confirm' | 'cancel' | null {
-  const normalized = input
-    .trim()
-    .replace(/[。！？!?；;]+$/u, '')
-    .replace(/\s+/g, '');
-  if (!normalized) {
-    return null;
-  }
-  if (/^(确认|确认执行|继续执行|继续|是|好的|好)$/.test(normalized)) {
-    return 'confirm';
-  }
-  if (/^(取消|不用了|算了|否|不执行|停止确认)$/.test(normalized)) {
-    return 'cancel';
-  }
-  return null;
 }
 
 function parseNaturalLanguageCommand(input: string): BridgeCommand | null {

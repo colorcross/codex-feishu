@@ -87,7 +87,7 @@
             <span class="pulse-dot" aria-hidden="true"></span>
             v0.1.11 released
           </span>
-          <span class="announcement-text">Native Docs, Base, and Tasks tools added, plus phase-aware status cards and confirmation-gated writes</span>
+          <span class="announcement-text">Native Docs, Base, and Tasks tools added, plus phase-aware status cards and in-place status updates</span>
           <a href="https://github.com/colorcross/codex-feishu/releases" class="announcement-link">View Release →</a>
         </div>
 
@@ -105,7 +105,7 @@
               <span class="title-line title-accent">control plane.</span>
             </h1>
             <p class="hero-desc">
-              Codex Feishu sends Feishu messages into resumable Codex CLI sessions. Project binding sticks by <code>chat_id</code>, local sessions can be adopted, shared repos are serialized safely, queued runtime state stays visible inside Feishu, and replies support structured rich text, cards, in-place status updates, confirmation-gated natural-language commands, and MCP access for external tools.
+              Codex Feishu sends Feishu messages into resumable Codex CLI sessions. Project binding sticks by <code>chat_id</code>, local sessions can be adopted, shared repos are serialized safely, queued runtime state stays visible inside Feishu, and replies support structured rich text, cards, in-place status updates, direct natural-language commands, and MCP access for external tools.
             </p>
             <div class="hero-actions">
               <a class="btn btn-primary" href="https://www.npmjs.com/package/codex-feishu">
@@ -152,8 +152,7 @@
                 <span class="demo-title">Run State Preview</span>
                 <span class="demo-badge demo-badge-teal">same repo, no race</span>
               </div>
-              <pre class="demo-code"><code><span class="c-teal">Message accepted:</span>  success
-<span class="c-amber">Processing status:</span> queued
+              <pre class="demo-code"><code><span class="c-amber">Processing status:</span> queued
 <span class="c-muted">Project:</span>           repo-a
 
 This repository is being operated by
