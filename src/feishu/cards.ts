@@ -55,10 +55,8 @@ export function buildStatusCard(input: {
 
   const metadata = [
     `**项目**: ${input.projectAlias}`,
-    input.sessionId ? `**会话**: ${input.sessionId}` : null,
     input.runStatus ? `**状态**: ${input.runStatus}` : null,
     input.runPhase ? `**阶段**: ${input.runPhase}` : null,
-    typeof input.sessionCount === 'number' ? `**已保存会话数**: ${input.sessionCount}` : null,
   ]
     .filter(Boolean)
     .join('\n');
@@ -94,7 +92,6 @@ export function buildMessageCard(input: {
 }): Record<string, unknown> {
   const metadata = [
     input.projectAlias ? `**项目**: ${input.projectAlias}` : null,
-    input.sessionId ? `**会话**: ${input.sessionId}` : null,
     input.status ? `**状态**: ${input.status}` : null,
     input.phase ? `**阶段**: ${input.phase}` : null,
   ]

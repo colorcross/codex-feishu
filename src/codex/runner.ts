@@ -39,6 +39,8 @@ export interface CodexJsonEvent {
   thread_id?: string;
   item?: {
     type?: string;
+    text?: string;
+    content?: unknown;
   };
   message?: string;
   [key: string]: unknown;
@@ -80,6 +82,7 @@ export async function runCodexTurn(options: CodexRunOptions): Promise<CodexRunRe
     let stderr = '';
     let stdoutBuffer = '';
     let sessionId = options.sessionId;
+    let finalMessageFromEvents = '';
     let settled = false;
     let timeoutHandle: NodeJS.Timeout | undefined;
     let abortCleanup: (() => void) | undefined;
@@ -165,6 +168,10 @@ export async function runCodexTurn(options: CodexRunOptions): Promise<CodexRunRe
           if (!sessionId && event.type === 'thread.started' && typeof event.thread_id === 'string') {
             sessionId = event.thread_id;
           }
+          const assistantText = extractAssistantText(event);
+          if (assistantText) {
+            finalMessageFromEvents = assistantText;
+          }
           await options.onEvent?.(event);
         } catch (error) {
           options.logger.debug({ line, error }, 'Ignoring unparsable Codex line');
@@ -186,7 +193,7 @@ export async function runCodexTurn(options: CodexRunOptions): Promise<CodexRunRe
       }
 
       try {
-        const finalMessage = await readFinalMessage(outputFile);
+        const finalMessage = (await readFinalMessage(outputFile)) || finalMessageFromEvents.trim();
         if ((exitCode ?? 1) !== 0 && !finalMessage) {
           finishReject(new Error(`Codex exited with code ${exitCode ?? 1}: ${stderr.trim() || 'no stderr output'}`));
           return;
@@ -277,6 +284,56 @@ export function buildCodexArgs(options: CodexRunOptions, outputFile: string, cap
 
 function quoteShellCommand(parts: string[]): string {
   return parts.map((part) => quoteShellArg(part)).join(' ');
+}
+
+export function extractAssistantText(event: CodexJsonEvent): string {
+  const item = isRecord(event.item) ? event.item : undefined;
+  if (!item) {
+    return '';
+  }
+  const itemType = typeof item.type === 'string' ? item.type : '';
+  if (!['agent_message', 'assistant_message', 'message'].includes(itemType)) {
+    return '';
+  }
+  const directText = typeof item.text === 'string' ? item.text.trim() : '';
+  if (directText) {
+    return directText;
+  }
+  return extractTextContent(item.content);
+}
+
+function extractTextContent(input: unknown): string {
+  if (typeof input === 'string') {
+    return input.trim();
+  }
+  if (Array.isArray(input)) {
+    const text = input
+      .map((part) => extractTextContent(part))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+    return text;
+  }
+  if (!isRecord(input)) {
+    return '';
+  }
+
+  const nestedText = [
+    typeof input.text === 'string' ? input.text : '',
+    typeof input.content === 'string' ? input.content : extractTextContent(input.content),
+    typeof input.value === 'string' ? input.value : extractTextContent(input.value),
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  if (nestedText) {
+    return nestedText;
+  }
+  return '';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function quoteShellArg(value: string): string {

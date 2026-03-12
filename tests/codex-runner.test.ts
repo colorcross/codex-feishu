@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCodexArgs, buildSpawnSpec, summarizeCodexEvent } from '../src/codex/runner.js';
+import { buildCodexArgs, buildSpawnSpec, extractAssistantText, summarizeCodexEvent } from '../src/codex/runner.js';
 import type { CodexCliCapabilities } from '../src/codex/capabilities.js';
 
 const capabilities: CodexCliCapabilities = {
@@ -107,5 +107,37 @@ describe('codex runner spawn spec', () => {
     expect(summarizeCodexEvent({ type: 'turn.completed' })).toBeNull();
     expect(summarizeCodexEvent({ item: { type: 'shell_command' } })).toBeNull();
     expect(summarizeCodexEvent({ type: 'error', message: 'boom' })).toBe('Codex 错误：boom');
+  });
+
+  it('extracts the final assistant text from JSON events when resume has no output file support', () => {
+    expect(
+      extractAssistantText({
+        type: 'item.completed',
+        item: {
+          type: 'agent_message',
+          text: 'DONE',
+        },
+      }),
+    ).toBe('DONE');
+  });
+
+  it('extracts nested assistant content when text is stored as structured content', () => {
+    expect(
+      extractAssistantText({
+        type: 'item.completed',
+        item: {
+          type: 'assistant_message',
+          content: [
+            {
+              type: 'output_text',
+              text: '第一段',
+            },
+            {
+              content: [{ value: '第二段' }],
+            },
+          ],
+        },
+      }),
+    ).toBe('第一段\n第二段');
   });
 });

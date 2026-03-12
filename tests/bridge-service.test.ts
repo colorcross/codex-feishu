@@ -150,10 +150,16 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-post-lifecycle' }));
 
     expect(setup.sendCard).toHaveBeenCalledTimes(1);
+    expect(setup.sendCard).toHaveBeenCalledWith(
+      'chat',
+      expect.any(Object),
+      expect.objectContaining({ replyToMessageId: 'm-post-lifecycle' }),
+    );
     expect(setup.updateCard).toHaveBeenCalled();
     expect(setup.sendPost).not.toHaveBeenCalled();
     expect(setup.updatePost).not.toHaveBeenCalled();
     expect(JSON.stringify(setup.sendCard.mock.calls[0]?.[1] ?? {})).not.toContain('消息接收: success');
+    expect(JSON.stringify(setup.sendCard.mock.calls[0]?.[1] ?? {})).not.toContain('会话');
     expect(JSON.stringify(setup.updateCard.mock.calls.at(-1)?.[1] ?? {})).toContain('最终结果');
   });
 
@@ -170,9 +176,33 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-update-reply' }));
 
     expect(setup.sendText).toHaveBeenCalledTimes(1);
+    expect(setup.sendText).toHaveBeenCalledWith(
+      'chat',
+      expect.any(String),
+      expect.objectContaining({ replyToMessageId: 'm-update-reply' }),
+    );
     expect(setup.sendText.mock.calls[0]?.[1]).not.toContain('消息接收: success');
     expect(setup.updateText).toHaveBeenCalled();
     expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('最终结果');
+  });
+
+  it('shows a fallback message when Codex completes without displayable text', async () => {
+    const setup = await createService({
+      service: {
+        reply_mode: 'post',
+      },
+    });
+    runCodexTurnMock.mockResolvedValue({
+      sessionId: 'thread-1',
+      finalMessage: '',
+      stderr: '',
+      exitCode: 0,
+      capabilities: { version: 'codex-cli 0.98.0', exec: {}, resume: {} },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-empty-result' }));
+
+    expect(JSON.stringify(setup.updateCard.mock.calls.at(-1)?.[1] ?? {})).toContain('Codex 已完成，但没有返回可显示文本。');
   });
 
   it('executes natural language admin mutations immediately', async () => {

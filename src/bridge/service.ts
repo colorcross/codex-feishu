@@ -594,6 +594,19 @@ export class CodexFeishuService {
       });
 
       const excerpt = result.finalMessage.slice(0, this.config.codex.output_token_limit);
+      if (!excerpt.trim()) {
+        this.logger.warn(
+          {
+            runId,
+            queueKey: input.queueKey,
+            sessionKey: input.sessionKey,
+            projectAlias: input.projectAlias,
+            sessionId: result.sessionId,
+            durationMs: Date.now() - startedAt,
+          },
+          'Codex run completed without a displayable final message',
+        );
+      }
       const cardSummary = truncateForFeishuCard(excerpt || 'Codex 已完成，但没有返回可显示文本。');
       await this.auditLog.append({
         type: 'codex.run.completed',
@@ -622,6 +635,7 @@ export class CodexFeishuService {
           projectAlias: input.projectAlias,
           sessionId: result.sessionId,
           exitCode: result.exitCode,
+          finalMessageChars: excerpt.length,
           durationMs: Date.now() - startedAt,
         },
         'Codex run completed',
@@ -2574,6 +2588,8 @@ export class CodexFeishuService {
       'You are replying through a Feishu bridge connected to Codex CLI.',
       'Keep the final response concise and action-oriented.',
       'When files change, summarize key paths and verification.',
+      'Do not expose session IDs, run IDs, chat IDs, conversation keys, secrets, raw logs, or absolute local filesystem paths to Feishu users unless they explicitly ask for them.',
+      'Prefer project-relative paths over absolute paths when referencing files.',
       this.config.codex.bridge_instructions,
     ].filter(Boolean);
 
@@ -3419,18 +3435,18 @@ export class CodexFeishuService {
     originalText?: string;
   }): Promise<FeishuMessageResponse> {
     const lifecycleMode = this.resolveRunLifecycleReplyMode();
+    const lifecycleReplyOptions = input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : undefined;
     if (lifecycleMode === 'card') {
-      const response = await this.sendCardReply(
-        input.chatId,
-        this.buildRunLifecycleCard({
-          title: input.title,
-          body: input.body,
-          projectAlias: input.projectAlias,
-          runStatus: input.runStatus,
-          runPhase: input.runPhase,
-        }),
-        input.replyToMessageId,
-      );
+      const card = this.buildRunLifecycleCard({
+        title: input.title,
+        body: input.body,
+        projectAlias: input.projectAlias,
+        runStatus: input.runStatus,
+        runPhase: input.runPhase,
+      });
+      const response = lifecycleReplyOptions
+        ? await this.feishuClient.sendCard(input.chatId, card, lifecycleReplyOptions)
+        : await this.sendCardReply(input.chatId, card);
       await this.auditLog.append({
         type: 'codex.run.replied',
         chat_id: input.chatId,
@@ -3445,8 +3461,8 @@ export class CodexFeishuService {
       const postBody = this.sanitizeUserVisibleReply(this.formatQuotedReply(input.body, input.originalText));
       const title = this.buildReplyTitle(postBody);
       const post = buildFeishuPost(title, postBody);
-      const response = this.config.service.reply_quote_user_message && input.replyToMessageId
-        ? await this.feishuClient.sendPost(input.chatId, post, { replyToMessageId: input.replyToMessageId })
+      const response = lifecycleReplyOptions
+        ? await this.feishuClient.sendPost(input.chatId, post, lifecycleReplyOptions)
         : await this.feishuClient.sendPost(input.chatId, post);
       await this.auditLog.append({
         type: 'codex.run.replied',
@@ -3458,7 +3474,13 @@ export class CodexFeishuService {
       });
       return response;
     }
-    const response = await this.sendTextReply(input.chatId, input.body, input.replyToMessageId, input.originalText);
+    const response = lifecycleReplyOptions
+      ? await this.feishuClient.sendText(
+          input.chatId,
+          this.sanitizeUserVisibleReply(this.formatQuotedReply(input.body, input.originalText)),
+          lifecycleReplyOptions,
+        )
+      : await this.sendTextReply(input.chatId, input.body, input.replyToMessageId, input.originalText);
     await this.auditLog.append({
       type: 'codex.run.replied',
       chat_id: input.chatId,
@@ -3595,13 +3617,9 @@ export class CodexFeishuService {
           title: input.title,
           body: input.body,
           projectAlias: input.projectAlias,
-          sessionId: input.sessionId,
           runStatus: input.runStatus,
           runPhase: input.runPhase,
           cardSummary: input.cardSummary,
-          sessionCount: includeActions && input.sessionKey
-            ? (await this.sessionStore.listProjectSessions(input.sessionKey, input.projectAlias)).length
-            : undefined,
           includeActions,
           rerunPayload: includeActions && input.sessionKey
             ? {
@@ -3678,7 +3696,7 @@ export class CodexFeishuService {
   private sanitizeUserVisibleReply(body: string): string {
     return body
       .split(/\r?\n/)
-      .filter((line) => !/^(运行|当前运行|阻塞运行):/.test(line.trim()))
+      .filter((line) => !/^(运行|当前运行|阻塞运行|run[_ -]?id|session[_ -]?id|conversation[_ -]?key|chat[_ -]?id|tenant[_ -]?key|project[_ -]?root|pid):/i.test(line.trim()))
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
@@ -3699,11 +3717,9 @@ export class CodexFeishuService {
     title: string;
     body: string;
     projectAlias: string;
-    sessionId?: string;
     runStatus?: string;
     runPhase?: string;
     cardSummary?: string;
-    sessionCount?: number;
     includeActions?: boolean;
     rerunPayload?: Record<string, unknown>;
     newSessionPayload?: Record<string, unknown>;
@@ -3716,10 +3732,8 @@ export class CodexFeishuService {
         title: input.title,
         summary: input.cardSummary ?? truncateForFeishuCard(this.stripLifecycleMetadata(sanitizedBody)),
         projectAlias: input.projectAlias,
-        sessionId: input.sessionId,
         runStatus: input.runStatus,
         runPhase: input.runPhase,
-        sessionCount: input.sessionCount,
         includeActions: true,
         rerunPayload: input.rerunPayload,
         newSessionPayload: input.newSessionPayload,
@@ -3733,14 +3747,13 @@ export class CodexFeishuService {
       status: input.runStatus,
       phase: input.runPhase,
       projectAlias: input.projectAlias,
-      sessionId: input.sessionId,
     });
   }
 
   private stripLifecycleMetadata(body: string): string {
     return body
       .split(/\r?\n/)
-      .filter((line) => !/^(项目|处理状态):/.test(line.trim()))
+      .filter((line) => !/^(项目|处理状态|会话|当前会话|已保存会话数):/.test(line.trim()))
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
