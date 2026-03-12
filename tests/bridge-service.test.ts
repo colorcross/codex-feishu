@@ -133,7 +133,7 @@ describe('bridge service', () => {
     expect(setup.sendText).not.toHaveBeenCalled();
   });
 
-  it('uses updateable cards for run lifecycle replies when reply_mode=post', async () => {
+  it('sends a single final post reply when reply_mode=post', async () => {
     const setup = await createService({
       service: {
         reply_mode: 'post',
@@ -149,21 +149,15 @@ describe('bridge service', () => {
 
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-post-lifecycle' }));
 
-    expect(setup.sendCard).toHaveBeenCalledTimes(1);
-    expect(setup.sendCard).toHaveBeenCalledWith(
-      'chat',
-      expect.any(Object),
-      expect.objectContaining({ replyToMessageId: 'm-post-lifecycle' }),
-    );
-    expect(setup.updateCard).toHaveBeenCalled();
-    expect(setup.sendPost).not.toHaveBeenCalled();
+    expect(setup.sendCard).not.toHaveBeenCalled();
+    expect(setup.updateCard).not.toHaveBeenCalled();
+    expect(setup.sendPost).toHaveBeenCalledTimes(1);
+    expect(setup.sendPost).toHaveBeenCalledWith('chat', expect.any(Object));
     expect(setup.updatePost).not.toHaveBeenCalled();
-    expect(JSON.stringify(setup.sendCard.mock.calls[0]?.[1] ?? {})).not.toContain('消息接收: success');
-    expect(JSON.stringify(setup.sendCard.mock.calls[0]?.[1] ?? {})).not.toContain('会话');
-    expect(JSON.stringify(setup.updateCard.mock.calls.at(-1)?.[1] ?? {})).toContain('最终结果');
+    expect(JSON.stringify(setup.sendPost.mock.calls[0]?.[1] ?? {})).toContain('最终结果');
   });
 
-  it('updates the processing reply without sending a second final notification', async () => {
+  it('sends only the final text reply without a processing reply', async () => {
     const setup = await createService();
     runCodexTurnMock.mockResolvedValue({
       sessionId: 'thread-1',
@@ -176,14 +170,10 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-update-reply' }));
 
     expect(setup.sendText).toHaveBeenCalledTimes(1);
-    expect(setup.sendText).toHaveBeenCalledWith(
-      'chat',
-      expect.any(String),
-      expect.objectContaining({ replyToMessageId: 'm-update-reply' }),
-    );
+    expect(setup.sendText).toHaveBeenCalledWith('chat', expect.any(String));
     expect(setup.sendText.mock.calls[0]?.[1]).not.toContain('消息接收: success');
-    expect(setup.updateText).toHaveBeenCalled();
-    expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('最终结果');
+    expect(setup.sendText.mock.calls[0]?.[1]).toContain('最终结果');
+    expect(setup.updateText).not.toHaveBeenCalled();
   });
 
   it('shows a fallback message when Codex completes without displayable text', async () => {
@@ -202,8 +192,8 @@ describe('bridge service', () => {
 
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-empty-result' }));
 
-    expect(JSON.stringify(setup.updateCard.mock.calls.at(-1)?.[1] ?? {})).toContain('Codex 已完成，但没有返回可显示文本。');
-    expect(setup.sendPost).not.toHaveBeenCalled();
+    expect(setup.updateCard).not.toHaveBeenCalled();
+    expect(JSON.stringify(setup.sendPost.mock.calls.at(-1)?.[1] ?? {})).toContain('Codex 已完成，但没有返回可显示文本。');
   });
 
   it('executes natural language admin mutations immediately', async () => {
@@ -564,17 +554,10 @@ describe('bridge service', () => {
     await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(1));
 
     const second = setup.service.handleIncomingMessage(buildMessage('run second', { message_id: 'm-queue-project-2' }));
-    await waitFor(() =>
-      expect(
-        setup.sendText.mock.calls.some(
-          ([chatId, body]) =>
-            chatId === 'chat' &&
-            typeof body === 'string' &&
-            body.includes('处理状态: queued') &&
-            body.includes('当前项目 default 已有任务在处理，已进入排队。'),
-        ),
-      ).toBe(true),
-    );
+    await setup.service.handleIncomingMessage(buildMessage('/status', { message_id: 'm-queue-project-status' }));
+    const statusReply = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    expect(statusReply).toContain('当前运行状态: queued');
+    expect(statusReply).toContain('当前项目 default 已有任务在处理，已进入排队。');
 
     resolvers.shift()?.({ sessionId: 'thread-first', finalMessage: 'done-first', stderr: '', exitCode: 0, capabilities: { version: 'v', exec: {}, resume: {} } });
     await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(2));
@@ -602,17 +585,6 @@ describe('bridge service', () => {
     await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(1));
 
     const second = setup.service.handleIncomingMessage(buildMessage('run shared b', { chat_id: 'chat-b', message_id: 'm-root-queue-b' }));
-    await waitFor(() =>
-      expect(
-        setup.sendText.mock.calls.some(
-          ([chatId, body]) =>
-            chatId === 'chat-b' &&
-            typeof body === 'string' &&
-            body.includes('处理状态: queued') &&
-            body.includes('当前仓库正在被其他会话操作，已进入排队。'),
-        ),
-      ).toBe(true),
-    );
 
     await setup.service.handleIncomingMessage(buildMessage('/status', { chat_id: 'chat-b', message_id: 'm-root-queue-status' }));
     const statusReply = setup.sendText.mock.calls.at(-1)?.[1] as string;

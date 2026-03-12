@@ -534,15 +534,6 @@ export class CodexFeishuService {
     );
 
     this.metrics?.recordCodexTurnStarted(input.projectAlias, runId);
-    await this.updateRunLifecycleReply({
-      chatId: input.chatId,
-      projectAlias: input.projectAlias,
-      title: 'Codex 处理中',
-      body: this.buildAcknowledgedRunReply(input.projectAlias, 'running', '已收到消息，正在处理。'),
-      runStatus: 'running',
-      runPhase: '执行中',
-      runId,
-    });
 
     try {
       const result = await runCodexTurn({
@@ -973,30 +964,6 @@ export class CodexFeishuService {
       },
     );
     try {
-      const initialReply = scheduled.queued
-        ? await this.sendRunLifecycleReply({
-            chatId: context.chat_id,
-            projectAlias: projectContext.projectAlias,
-            title: '已加入排队',
-            body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'queued', scheduled.queued.detail),
-            runStatus: 'queued',
-            runPhase: '排队中',
-            runId: scheduled.runId,
-            replyToMessageId: context.message_id,
-            originalText: originalText ?? context.text,
-          })
-        : await this.sendRunLifecycleReply({
-            chatId: context.chat_id,
-            projectAlias: projectContext.projectAlias,
-            title: 'Codex 处理中',
-            body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'running', '已收到消息，正在处理。'),
-            runStatus: 'running',
-            runPhase: '准备上下文',
-            runId: scheduled.runId,
-            replyToMessageId: context.message_id,
-            originalText: originalText ?? context.text,
-          });
-      await this.rememberRunReplyTarget(scheduled.runId, initialReply);
     } finally {
       scheduled.release();
     }
@@ -3514,6 +3481,9 @@ export class CodexFeishuService {
     runId: string,
     progress: string,
   ): Promise<void> {
+    if (!this.runReplyTargets.has(runId)) {
+      return;
+    }
     const body = [
       `项目: ${input.projectAlias}`,
       '处理状态: running',
@@ -3531,18 +3501,7 @@ export class CodexFeishuService {
       runId,
     });
     if (!updated) {
-      const response = await this.sendRunLifecycleReply({
-        chatId: input.chatId,
-        projectAlias: input.projectAlias,
-        title: 'Codex 处理中',
-        body,
-        runStatus: 'running',
-        runPhase: '生成中',
-        runId,
-        replyToMessageId: input.replyToMessageId,
-        originalText: input.prompt,
-      });
-      await this.rememberRunReplyTarget(runId, response);
+      return;
     }
   }
 
@@ -3577,18 +3536,20 @@ export class CodexFeishuService {
     if (updated) {
       return;
     }
-    const response = await this.sendRunLifecycleReply({
-      chatId: input.input.chatId,
-      projectAlias: input.input.projectAlias,
-      title: input.title,
-      body: input.body,
-      runStatus: input.runStatus,
-      runPhase: input.runPhase,
-      runId: input.runId,
-      replyToMessageId: input.input.replyToMessageId,
-      originalText: input.input.prompt,
+    await this.sendTextReply(
+      input.input.chatId,
+      input.body,
+      input.input.replyToMessageId,
+      input.input.prompt,
+    );
+    await this.auditLog.append({
+      type: 'codex.run.replied',
+      chat_id: input.input.chatId,
+      project_alias: input.input.projectAlias,
+      run_status: input.runStatus,
+      run_phase: input.runPhase,
+      run_id: input.runId,
     });
-    await this.rememberRunReplyTarget(input.runId, response);
   }
 
   private async updateRunLifecycleReply(input: {
