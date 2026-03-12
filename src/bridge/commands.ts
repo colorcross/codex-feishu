@@ -22,7 +22,7 @@ export type BridgeCommand =
   | { kind: 'base'; action: 'tables' | 'records' | 'create' | 'update'; appToken?: string; tableId?: string; recordId?: string; value?: string; extra?: string }
   | { kind: 'memory'; action: 'status' | 'stats' | 'search' | 'recent' | 'save' | 'pin' | 'unpin' | 'forget' | 'restore'; scope?: MemoryScopeTarget; value?: string; filters?: MemoryCommandFilters }
   | { kind: 'wiki'; action: 'spaces' | 'search' | 'read' | 'create' | 'rename' | 'copy' | 'move' | 'members' | 'grant' | 'revoke'; value?: string; extra?: string; target?: string; role?: string }
-  | { kind: 'project'; alias?: string }
+  | { kind: 'project'; alias?: string; followupPrompt?: string }
   | { kind: 'session'; action: 'list' | 'use' | 'new' | 'drop'; threadId?: string }
   | { kind: 'session'; action: 'adopt'; target?: string }
   | { kind: 'admin'; resource: Exclude<AdminResource, 'project' | 'service' | 'config'>; action: AdminListAction; value?: string }
@@ -228,7 +228,12 @@ export function describeBridgeCommand(command: BridgeCommand): string {
     case 'wiki':
       return `知识库操作: ${command.action}`;
     case 'project':
-      return command.alias ? `切换到项目 ${command.alias}` : '查看当前项目';
+      if (!command.alias) {
+        return '查看当前项目';
+      }
+      return command.followupPrompt
+        ? `切换到项目 ${command.alias}，并执行：${truncateForDescription(command.followupPrompt)}`
+        : `切换到项目 ${command.alias}`;
     case 'session':
       if (command.action === 'adopt') {
         return `接管会话 ${command.target ?? 'latest'}`;
@@ -317,6 +322,9 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
   if (/^(查看项目|项目列表|列出项目|有哪些项目)$/.test(normalized)) {
     return { kind: 'projects' };
   }
+  if (/^(当前项目|当前项目是哪个|当前是什么项目|现在是什么项目|现在在哪个项目)$/.test(normalized)) {
+    return { kind: 'project' };
+  }
   if (/^(新会话|开启新会话|重新开始会话|下一条消息新开会话)$/.test(normalized)) {
     return { kind: 'new' };
   }
@@ -345,9 +353,22 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
     return { kind: 'session', action: 'adopt', target: 'list' };
   }
 
+  const projectWithPromptMatch = normalized.match(/^(?:切换到|切到|切换至|转到|进入|使用)(?:项目)?\s*([^，,。；;：:\s]+?)(?:项目)?(?:[，,。；;：:]\s*|\s+)(.+)$/);
+  if (projectWithPromptMatch) {
+    const [, alias, followupPrompt] = projectWithPromptMatch;
+    if (alias && followupPrompt) {
+      return { kind: 'project', alias, followupPrompt: followupPrompt.trim() };
+    }
+  }
+
   const projectMatch = normalized.match(/^(?:切换到项目|切到项目|使用项目)\s+(\S+)$/);
   if (projectMatch) {
     return { kind: 'project', alias: projectMatch[1] };
+  }
+
+  const projectShortMatch = normalized.match(/^(?:切换到|切到|切换至|转到|进入|使用)([^，,。；;：:\s]+)项目$/);
+  if (projectShortMatch) {
+    return { kind: 'project', alias: projectShortMatch[1] };
   }
 
   const adoptSessionMatch = normalized.match(/^(?:接管会话|使用会话)\s+(\S+)$/);

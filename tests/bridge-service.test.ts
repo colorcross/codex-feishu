@@ -659,6 +659,33 @@ describe('bridge service', () => {
     expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.prompt).toContain('Current project alias: repo-a');
   });
 
+  it('switches project and continues execution for natural language project intents', async () => {
+    const setup = await createService({
+      projects: {
+        default: { root: '/tmp/repo-a', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+        '长话短说': { root: '/tmp/changhua', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+      },
+      security: { require_group_mentions: false },
+    });
+    runCodexTurnMock.mockResolvedValue({
+      sessionId: 'thread-natural-project',
+      finalMessage: 'done',
+      stderr: '',
+      exitCode: 0,
+      capabilities: { version: 'v', exec: {}, resume: {} },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('切到长话短说项目，看昨晚都干了啥', { message_id: 'm-natural-project' }));
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('请在 90 秒内回复“确认”继续');
+
+    await setup.service.handleIncomingMessage(buildMessage('确认', { message_id: 'm-natural-project-confirm' }));
+    await waitFor(() => expect(runCodexTurnMock).toHaveBeenCalledTimes(1));
+
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.workdir).toBe('/tmp/changhua');
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.prompt).toContain('Current project alias: 长话短说');
+    expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.prompt).toContain('看昨晚都干了啥');
+  });
+
   it('injects attachment metadata into the Codex prompt for media messages', async () => {
     const writeFile = vi.fn(async (filePath: string) => {
       await fs.writeFile(filePath, 'audio-bytes', 'utf8');

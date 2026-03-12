@@ -282,7 +282,7 @@ export class CodexFeishuService {
           await this.sendTextReply(context.chat_id, await this.buildProjectsText(selectionKey, context.chat_id), context.message_id, context.text);
           return;
         case 'project':
-          await this.handleProjectCommand(context, selectionKey, command.alias);
+          await this.handleProjectCommand(context, selectionKey, command.alias, command.followupPrompt);
           return;
         case 'status':
           await this.handleStatusCommand(context, selectionKey, command.detail === true);
@@ -323,97 +323,9 @@ export class CodexFeishuService {
         case 'admin':
           await this.handleAdminCommand(context, selectionKey, command);
           return;
-        case 'prompt': {
-          const prompt = normalizeIncomingText(command.prompt) || (context.attachments.length > 0 ? '请结合这条飞书消息附带的多媒体信息继续处理。' : '');
-          if (!prompt) {
-            return;
-          }
-          const projectContext = await this.resolveProjectContext(context, selectionKey);
-          if (!this.canExecuteProjectRuns(context.chat_id, projectContext.projectAlias)) {
-            await this.sendTextReply(
-              context.chat_id,
-              `当前 chat_id 只有 ${resolveProjectAccessRole(this.config, projectContext.projectAlias, context.chat_id) ?? '未授权'} 权限，执行运行至少需要 ${describeMinimumRole('operator')} 权限。`,
-              context.message_id,
-              context.text,
-            );
-            return;
-          }
-          const resolvedContext = await resolveMessageResources(
-            this.feishuClient.createSdkClient?.(),
-            this.resolveProjectDownloadDir(projectContext.projectAlias, projectContext.project),
-            context,
-            {
-              downloadEnabled: this.config.service.download_message_resources,
-              transcribeAudio: this.config.service.transcribe_audio_messages,
-              transcribeCliPath: this.config.service.transcribe_cli_path,
-              describeImages: this.config.service.describe_image_messages,
-              openaiImageModel: this.config.service.openai_image_model,
-              logger: this.logger,
-            },
-          );
-          if (context.chat_type === 'group' && this.shouldRequireMention(projectContext.project) && context.mentions.length === 0) {
-            return;
-          }
-          const rateLimitMessage = this.checkAndConsumeChatRateLimit(projectContext.projectAlias, projectContext.project, context.chat_id);
-          if (rateLimitMessage) {
-            await this.sendTextReply(context.chat_id, rateLimitMessage, context.message_id, context.text);
-            return;
-          }
-          await this.sessionStore.selectProject(selectionKey, projectContext.projectAlias);
-
-          const scheduled = await this.scheduleProjectExecution(
-            projectContext,
-            {
-              chatId: context.chat_id,
-              actorId: context.actor_id,
-              prompt,
-            },
-            async (runId) => {
-              await this.executePrompt({
-                runId,
-                chatId: context.chat_id,
-                actorId: context.actor_id,
-                tenantKey: context.tenant_key,
-                projectAlias: projectContext.projectAlias,
-                project: projectContext.project,
-                prompt,
-                incomingMessage: resolvedContext,
-                sessionKey: projectContext.sessionKey,
-                queueKey: projectContext.queueKey,
-                replyToMessageId: context.message_id,
-              });
-            },
-          );
-          try {
-            const initialReply = scheduled.queued
-              ? await this.sendRunLifecycleReply({
-                  chatId: context.chat_id,
-                  projectAlias: projectContext.projectAlias,
-                  title: '已加入排队',
-                  body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'queued', scheduled.queued.detail),
-                  runStatus: 'queued',
-                  runPhase: '排队中',
-                  runId: scheduled.runId,
-                  replyToMessageId: context.message_id,
-                  originalText: context.text,
-                })
-              : await this.sendRunLifecycleReply({
-                  chatId: context.chat_id,
-                  projectAlias: projectContext.projectAlias,
-                  title: 'Codex 处理中',
-                  body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'running', '已收到消息，正在处理。'),
-                  runStatus: 'running',
-                  runPhase: '准备上下文',
-                  runId: scheduled.runId,
-                  replyToMessageId: context.message_id,
-                  originalText: context.text,
-                });
-            await this.rememberRunReplyTarget(scheduled.runId, initialReply);
-          } finally {
-            scheduled.release();
-          }
-          await scheduled.completion;
-        }
+        case 'prompt':
+          await this.handlePromptMessage(context, selectionKey, command.prompt, context.text);
+          return;
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -891,7 +803,12 @@ export class CodexFeishuService {
     }
   }
 
-  private async handleProjectCommand(context: IncomingMessageContext, selectionKey: string, alias?: string): Promise<void> {
+  private async handleProjectCommand(
+    context: IncomingMessageContext,
+    selectionKey: string,
+    alias?: string,
+    followupPrompt?: string,
+  ): Promise<void> {
     if (!alias) {
       const currentAlias = await this.resolveProjectAlias(selectionKey);
       if (!canAccessProject(this.config, currentAlias, context.chat_id, 'viewer')) {
@@ -947,7 +864,108 @@ export class CodexFeishuService {
         trigger: 'project-switch',
       });
     }
+    if (followupPrompt) {
+      await this.handlePromptMessage(context, selectionKey, followupPrompt, context.text);
+      return;
+    }
     await this.sendTextReply(context.chat_id, switched.text, context.message_id, context.text);
+  }
+
+  private async handlePromptMessage(
+    context: IncomingMessageContext,
+    selectionKey: string,
+    rawPrompt: string,
+    originalText?: string,
+  ): Promise<void> {
+    const prompt = normalizeIncomingText(rawPrompt) || (context.attachments.length > 0 ? '请结合这条飞书消息附带的多媒体信息继续处理。' : '');
+    if (!prompt) {
+      return;
+    }
+    const projectContext = await this.resolveProjectContext(context, selectionKey);
+    if (!this.canExecuteProjectRuns(context.chat_id, projectContext.projectAlias)) {
+      await this.sendTextReply(
+        context.chat_id,
+        `当前 chat_id 只有 ${resolveProjectAccessRole(this.config, projectContext.projectAlias, context.chat_id) ?? '未授权'} 权限，执行运行至少需要 ${describeMinimumRole('operator')} 权限。`,
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
+    const resolvedContext = await resolveMessageResources(
+      this.feishuClient.createSdkClient?.(),
+      this.resolveProjectDownloadDir(projectContext.projectAlias, projectContext.project),
+      context,
+      {
+        downloadEnabled: this.config.service.download_message_resources,
+        transcribeAudio: this.config.service.transcribe_audio_messages,
+        transcribeCliPath: this.config.service.transcribe_cli_path,
+        describeImages: this.config.service.describe_image_messages,
+        openaiImageModel: this.config.service.openai_image_model,
+        logger: this.logger,
+      },
+    );
+    if (context.chat_type === 'group' && this.shouldRequireMention(projectContext.project) && context.mentions.length === 0) {
+      return;
+    }
+    const rateLimitMessage = this.checkAndConsumeChatRateLimit(projectContext.projectAlias, projectContext.project, context.chat_id);
+    if (rateLimitMessage) {
+      await this.sendTextReply(context.chat_id, rateLimitMessage, context.message_id, context.text);
+      return;
+    }
+    await this.sessionStore.selectProject(selectionKey, projectContext.projectAlias);
+
+    const scheduled = await this.scheduleProjectExecution(
+      projectContext,
+      {
+        chatId: context.chat_id,
+        actorId: context.actor_id,
+        prompt,
+      },
+      async (runId) => {
+        await this.executePrompt({
+          runId,
+          chatId: context.chat_id,
+          actorId: context.actor_id,
+          tenantKey: context.tenant_key,
+          projectAlias: projectContext.projectAlias,
+          project: projectContext.project,
+          prompt,
+          incomingMessage: resolvedContext,
+          sessionKey: projectContext.sessionKey,
+          queueKey: projectContext.queueKey,
+          replyToMessageId: context.message_id,
+        });
+      },
+    );
+    try {
+      const initialReply = scheduled.queued
+        ? await this.sendRunLifecycleReply({
+            chatId: context.chat_id,
+            projectAlias: projectContext.projectAlias,
+            title: '已加入排队',
+            body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'queued', scheduled.queued.detail),
+            runStatus: 'queued',
+            runPhase: '排队中',
+            runId: scheduled.runId,
+            replyToMessageId: context.message_id,
+            originalText: originalText ?? context.text,
+          })
+        : await this.sendRunLifecycleReply({
+            chatId: context.chat_id,
+            projectAlias: projectContext.projectAlias,
+            title: 'Codex 处理中',
+            body: this.buildAcknowledgedRunReply(projectContext.projectAlias, 'running', '已收到消息，正在处理。'),
+            runStatus: 'running',
+            runPhase: '准备上下文',
+            runId: scheduled.runId,
+            replyToMessageId: context.message_id,
+            originalText: originalText ?? context.text,
+          });
+      await this.rememberRunReplyTarget(scheduled.runId, initialReply);
+    } finally {
+      scheduled.release();
+    }
+    await scheduled.completion;
   }
 
   private async handleStatusCommand(context: IncomingMessageContext, selectionKey: string, detail: boolean = false): Promise<void> {
@@ -3310,7 +3328,7 @@ export class CodexFeishuService {
   ): Promise<void> {
     switch (pending.command.kind) {
       case 'project':
-        await this.handleProjectCommand(context, selectionKey, pending.command.alias);
+        await this.handleProjectCommand(context, selectionKey, pending.command.alias, pending.command.followupPrompt);
         return;
       case 'new':
         await this.handleNewCommand(context, selectionKey);
