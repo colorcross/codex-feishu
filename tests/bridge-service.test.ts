@@ -686,6 +686,24 @@ describe('bridge service', () => {
     expect(runCodexTurnMock.mock.calls.at(-1)?.[0]?.prompt).toContain('看昨晚都干了啥');
   });
 
+  it('switches project and executes read-only follow-up commands from natural language', async () => {
+    const setup = await createService({
+      projects: {
+        default: { root: '/tmp/repo-a', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+        'repo-b': { root: '/tmp/repo-b', session_scope: 'chat', mention_required: false, knowledge_paths: [], wiki_space_ids: [] },
+      },
+      security: { require_group_mentions: false },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('帮我把项目切到 repo-b 然后查看状态', { message_id: 'm-followup-status' }));
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('请在 90 秒内回复“确认”继续');
+
+    await setup.service.handleIncomingMessage(buildMessage('确认', { message_id: 'm-followup-status-confirm' }));
+
+    expect(runCodexTurnMock).not.toHaveBeenCalled();
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('项目 repo-b 还没有会话');
+  });
+
   it('injects attachment metadata into the Codex prompt for media messages', async () => {
     const writeFile = vi.fn(async (filePath: string) => {
       await fs.writeFile(filePath, 'audio-bytes', 'utf8');

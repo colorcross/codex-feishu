@@ -176,21 +176,33 @@ describe('bridge commands', () => {
 
   it('supports high-confidence natural language commands', () => {
     expect(parseBridgeCommand('查看状态')).toEqual({ kind: 'status' });
+    expect(parseBridgeCommand('帮我看下当前状态')).toEqual({ kind: 'status' });
     expect(parseBridgeCommand('当前项目是哪个')).toEqual({ kind: 'project' });
+    expect(parseBridgeCommand('帮我看看当前项目')).toEqual({ kind: 'project' });
     expect(parseBridgeCommand('读取文档 doxcn123')).toEqual({ kind: 'doc', action: 'read', value: 'doxcn123' });
     expect(parseBridgeCommand('创建任务 修复线上告警')).toEqual({ kind: 'task', action: 'create', value: '修复线上告警' });
     expect(parseBridgeCommand('完成任务 task-guid-1')).toEqual({ kind: 'task', action: 'complete', value: 'task-guid-1' });
     expect(parseBridgeCommand('查看详细状态')).toEqual({ kind: 'status', detail: true });
+    expect(parseBridgeCommand('请帮我看下状态详情')).toEqual({ kind: 'status', detail: true });
     expect(parseBridgeCommand('项目列表')).toEqual({ kind: 'projects' });
+    expect(parseBridgeCommand('帮我看看有哪些项目')).toEqual({ kind: 'projects' });
     expect(parseBridgeCommand('新会话')).toEqual({ kind: 'new' });
+    expect(parseBridgeCommand('帮我开个新会话')).toEqual({ kind: 'new' });
     expect(parseBridgeCommand('切换到项目 repo-a')).toEqual({ kind: 'project', alias: 'repo-a' });
     expect(parseBridgeCommand('切到长话短说项目')).toEqual({ kind: 'project', alias: '长话短说' });
+    expect(parseBridgeCommand('请把项目切到 repo-a')).toEqual({ kind: 'project', alias: 'repo-a' });
     expect(parseBridgeCommand('切到长话短说项目，看昨晚都干了啥')).toEqual({
       kind: 'project',
       alias: '长话短说',
       followupPrompt: '看昨晚都干了啥',
     });
+    expect(parseBridgeCommand('帮我把项目切到 repo-a 然后查看状态')).toEqual({
+      kind: 'project',
+      alias: 'repo-a',
+      followupPrompt: '查看状态',
+    });
     expect(parseBridgeCommand('接管最新会话')).toEqual({ kind: 'session', action: 'adopt', target: 'latest' });
+    expect(parseBridgeCommand('帮我接上最新会话')).toEqual({ kind: 'session', action: 'adopt', target: 'latest' });
     expect(parseBridgeCommand('接管会话 thread-123')).toEqual({ kind: 'session', action: 'adopt', target: 'thread-123' });
     expect(parseBridgeCommand('添加项目 repo-b /srv/repos/repo-b')).toEqual({
       kind: 'admin',
@@ -208,6 +220,7 @@ describe('bridge commands', () => {
       value: 'false',
     });
     expect(parseBridgeCommand('重启服务')).toEqual({ kind: 'admin', resource: 'service', action: 'restart' });
+    expect(parseBridgeCommand('麻烦你重启一下服务')).toEqual({ kind: 'admin', resource: 'service', action: 'restart' });
     expect(parseBridgeCommand('查看运行列表')).toEqual({ kind: 'admin', resource: 'service', action: 'runs' });
   });
 

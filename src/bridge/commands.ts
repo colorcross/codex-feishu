@@ -196,7 +196,7 @@ export function buildHelpText(): string {
     '/admin service restart 保存配置并重启服务',
     '',
     '也支持高置信度自然语言触发，例如：',
-    '查看状态 / 查看详细状态 / 项目列表 / 新会话 / 取消当前任务 / 切换到项目 repo-a / 接管最新会话 / 重启服务',
+    '查看状态 / 帮我看下当前状态 / 当前项目是哪个 / 项目列表 / 新会话 / 取消当前任务 / 切换到项目 repo-a / 帮我把项目切到 repo-a 然后查看状态 / 接管最新会话 / 重启服务',
     '涉及切换、取消、重启、配置修改等变更操作时，会要求先回复“确认”再执行。',
     '',
     '直接发送文本会进入当前项目的 Codex 会话。',
@@ -283,6 +283,44 @@ export function requiresCommandConfirmation(command: BridgeCommand): boolean {
   }
 }
 
+export function isReadOnlyCommand(command: BridgeCommand): boolean {
+  switch (command.kind) {
+    case 'help':
+    case 'status':
+    case 'projects':
+      return true;
+    case 'kb':
+      return true;
+    case 'project':
+      return !command.alias;
+    case 'doc':
+      return command.action === 'read';
+    case 'task':
+      return command.action === 'list' || command.action === 'get';
+    case 'base':
+      return command.action === 'tables' || command.action === 'records';
+    case 'memory':
+      return command.action === 'status' || command.action === 'stats' || command.action === 'search' || command.action === 'recent';
+    case 'wiki':
+      return command.action === 'spaces' || command.action === 'search' || command.action === 'read' || command.action === 'members';
+    case 'session':
+      return command.action === 'list';
+    case 'admin':
+      if (command.resource === 'service') {
+        return command.action === 'status' || command.action === 'runs';
+      }
+      if (command.resource === 'project') {
+        return command.action === 'list';
+      }
+      if (command.resource === 'config') {
+        return command.action === 'history';
+      }
+      return command.action === 'status' || command.action === 'list';
+    default:
+      return false;
+  }
+}
+
 export function parseConfirmationIntent(input: string): 'confirm' | 'cancel' | null {
   const normalized = input
     .trim()
@@ -301,59 +339,63 @@ export function parseConfirmationIntent(input: string): 'confirm' | 'cancel' | n
 }
 
 function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
-  const normalized = input
+  const normalized = stripNaturalLanguagePrefix(
+    input
     .trim()
     .replace(/[。！？!?；;]+$/u, '')
-    .replace(/\s+/g, ' ');
+    .replace(/\s+/g, ' '),
+  );
 
   if (!normalized) {
     return null;
   }
 
-  if (/^(帮助|查看帮助|命令帮助)$/.test(normalized)) {
+  if (/^(帮助|查看帮助|命令帮助|帮助手册)$/.test(normalized)) {
     return { kind: 'help' };
   }
-  if (/^(查看状态|当前状态|运行状态|看状态)$/.test(normalized)) {
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:当前)?(?:运行)?状态$/.test(normalized)) {
     return { kind: 'status' };
   }
-  if (/^(查看详细状态|详细状态|状态详情)$/.test(normalized)) {
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:当前)?(?:详细状态|状态详情|详细运行状态)$/.test(normalized)) {
     return { kind: 'status', detail: true };
   }
-  if (/^(查看项目|项目列表|列出项目|有哪些项目)$/.test(normalized)) {
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:项目列表|可用项目|有哪些项目|查看项目|列出项目)$/.test(normalized)) {
     return { kind: 'projects' };
   }
-  if (/^(当前项目|当前项目是哪个|当前是什么项目|现在是什么项目|现在在哪个项目)$/.test(normalized)) {
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:当前)?项目(?:是哪个|是什么)?$|^我现在在哪个项目$/.test(normalized)) {
     return { kind: 'project' };
   }
-  if (/^(新会话|开启新会话|重新开始会话|下一条消息新开会话)$/.test(normalized)) {
+  if (/^(新会话|开启新会话|重新开始会话|下一条消息新开会话|开(?:个|一个)?新会话|重新开(?:个|一个)?会话|新开会话)$/.test(normalized)) {
     return { kind: 'new' };
   }
-  if (/^(取消当前任务|停止当前任务|取消运行|停止运行|停止任务)$/.test(normalized)) {
+  if (/^(取消当前任务|停止当前任务|取消运行|停止运行|停止任务|停掉当前任务|终止当前任务|取消这次运行)$/.test(normalized)) {
     return { kind: 'cancel' };
   }
-  if (/^(查看文档|读取文档)\s+(\S+)$/.test(normalized)) {
-    const match = normalized.match(/^(?:查看文档|读取文档)\s+(\S+)$/);
+  if (/^(查看文档|读取文档|打开文档)\s+(\S+)$/.test(normalized)) {
+    const match = normalized.match(/^(?:查看文档|读取文档|打开文档)\s+(\S+)$/);
     return match?.[1] ? { kind: 'doc', action: 'read', value: match[1] } : null;
   }
-  if (/^创建任务\s+(.+)$/.test(normalized)) {
-    const match = normalized.match(/^创建任务\s+(.+)$/);
+  if (/^(创建任务|新建任务)\s+(.+)$/.test(normalized)) {
+    const match = normalized.match(/^(?:创建任务|新建任务)\s+(.+)$/);
     return match?.[1] ? { kind: 'task', action: 'create', value: match[1].trim() } : null;
   }
-  if (/^完成任务\s+(\S+)$/.test(normalized)) {
-    const match = normalized.match(/^完成任务\s+(\S+)$/);
+  if (/^(完成任务|关闭任务)\s+(\S+)$/.test(normalized)) {
+    const match = normalized.match(/^(?:完成任务|关闭任务)\s+(\S+)$/);
     return match?.[1] ? { kind: 'task', action: 'complete', value: match[1] } : null;
   }
-  if (/^(查看会话|会话列表|列出会话)$/.test(normalized)) {
+  if (/^(查看会话|会话列表|列出会话|查看当前会话|看看会话列表|有哪些会话)$/.test(normalized)) {
     return { kind: 'session', action: 'list' };
   }
-  if (/^(接管最新会话|接管最近会话|接管最新 Codex 会话)$/i.test(normalized)) {
+  if (/^(接管最新会话|接管最近会话|接管最新 Codex 会话|接上最新会话|续上最新会话|恢复最新会话)$/i.test(normalized)) {
     return { kind: 'session', action: 'adopt', target: 'latest' };
   }
-  if (/^(查看可接管会话|列出可接管会话|可接管会话列表)$/.test(normalized)) {
+  if (/^(查看可接管会话|列出可接管会话|可接管会话列表|查看可恢复会话|可恢复会话列表)$/.test(normalized)) {
     return { kind: 'session', action: 'adopt', target: 'list' };
   }
 
-  const projectWithPromptMatch = normalized.match(/^(?:切换到|切到|切换至|转到|进入|使用)(?:项目)?\s*([^，,。；;：:\s]+?)(?:项目)?(?:[，,。；;：:]\s*|\s+)(.+)$/);
+  const projectWithPromptMatch = normalized.match(
+    /^(?:把)?(?:当前)?(?:项目)?(?:切换到|切到|切换至|转到|进入|使用|换到|改到)\s*([^，,。；;：:\s]+?)(?:项目)?(?:[，,。；;：:]\s*|\s*(?:然后|并且|并|再)\s*)(.+)$/,
+  );
   if (projectWithPromptMatch) {
     const [, alias, followupPrompt] = projectWithPromptMatch;
     if (alias && followupPrompt) {
@@ -361,28 +403,28 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
     }
   }
 
-  const projectMatch = normalized.match(/^(?:切换到项目|切到项目|使用项目)\s+(\S+)$/);
+  const projectMatch = normalized.match(/^(?:把)?(?:当前)?(?:项目)?(?:切换到项目|切到项目|使用项目|切换到|切到|切换至|转到|进入|使用|换到|改到)\s+(\S+)$/);
   if (projectMatch) {
     return { kind: 'project', alias: projectMatch[1] };
   }
 
-  const projectShortMatch = normalized.match(/^(?:切换到|切到|切换至|转到|进入|使用)([^，,。；;：:\s]+)项目$/);
+  const projectShortMatch = normalized.match(/^(?:把)?(?:当前)?(?:项目)?(?:切换到|切到|切换至|转到|进入|使用|换到|改到)([^，,。；;：:\s]+)项目$/);
   if (projectShortMatch) {
     return { kind: 'project', alias: projectShortMatch[1] };
   }
 
-  const adoptSessionMatch = normalized.match(/^(?:接管会话|使用会话)\s+(\S+)$/);
+  const adoptSessionMatch = normalized.match(/^(?:接管会话|使用会话|接上会话|恢复会话|续上会话)\s+(\S+)$/);
   if (adoptSessionMatch) {
     return { kind: 'session', action: 'adopt', target: adoptSessionMatch[1] };
   }
 
-  if (/^(管理员状态|查看管理员状态)$/.test(normalized)) {
+  if (/^(管理员状态|查看管理员状态|看一下管理员状态)$/.test(normalized)) {
     return { kind: 'admin', resource: 'service', action: 'status' };
   }
-  if (/^(查看运行列表|查看运行状态列表|管理员运行列表)$/.test(normalized)) {
+  if (/^(查看运行列表|查看运行状态列表|管理员运行列表|查看排队列表|查看任务列表)$/.test(normalized)) {
     return { kind: 'admin', resource: 'service', action: 'runs' };
   }
-  if (/^(重启服务|重启机器人|重启 codex-feishu 服务)$/i.test(normalized)) {
+  if (/^(重启服务|重启机器人|重启 codex-feishu 服务|重启一下服务|重启一下机器人)$/i.test(normalized)) {
     return { kind: 'admin', resource: 'service', action: 'restart' };
   }
 
@@ -442,6 +484,15 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
   }
 
   return null;
+}
+
+function stripNaturalLanguagePrefix(input: string): string {
+  let value = input.trim();
+  const prefixPattern = /^(?:请(?:帮我)?|帮我|帮忙|麻烦(?:你|帮我)?|劳驾(?:帮我)?|辛苦(?:帮我)?|能不能(?:帮我)?|可以(?:帮我)?|可否(?:帮我)?)(?:\s+|(?=把)|(?=看)|(?=查)|(?=切)|(?=转)|(?=进)|(?=用)|(?=开)|(?=取)|(?=停)|(?=重)|(?=接)|(?=恢)|(?=创)|(?=完)|(?=当)|(?=项))/u;
+  while (prefixPattern.test(value)) {
+    value = value.replace(prefixPattern, '').trim();
+  }
+  return value.replace(/^把(?=项目|当前项目|切换到|切到|切换至|转到|进入|使用|换到|改到)/u, '').trim();
 }
 
 function truncateForDescription(input: string, limit: number = 36): string {

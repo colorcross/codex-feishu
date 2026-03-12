@@ -5,6 +5,7 @@ import type { BridgeConfig, ProjectConfig, SessionScope } from '../config/schema
 import {
   buildHelpText,
   describeBridgeCommand,
+  isReadOnlyCommand,
   normalizeIncomingText,
   parseBridgeCommand,
   parseConfirmationIntent,
@@ -865,10 +866,68 @@ export class CodexFeishuService {
       });
     }
     if (followupPrompt) {
+      const followupCommand = parseBridgeCommand(followupPrompt);
+      if (isReadOnlyCommand(followupCommand)) {
+        await this.handleReadOnlyFollowupCommand(context, selectionKey, followupCommand, followupPrompt);
+        return;
+      }
       await this.handlePromptMessage(context, selectionKey, followupPrompt, context.text);
       return;
     }
     await this.sendTextReply(context.chat_id, switched.text, context.message_id, context.text);
+  }
+
+  private async handleReadOnlyFollowupCommand(
+    context: IncomingMessageContext,
+    selectionKey: string,
+    command: ReturnType<typeof parseBridgeCommand>,
+    followupPrompt: string,
+  ): Promise<void> {
+    switch (command.kind) {
+      case 'help':
+        await this.sendTextReply(context.chat_id, buildHelpText(), context.message_id, context.text);
+        return;
+      case 'projects':
+        await this.sendTextReply(context.chat_id, await this.buildProjectsText(selectionKey, context.chat_id), context.message_id, context.text);
+        return;
+      case 'project':
+        await this.handleProjectCommand(context, selectionKey, command.alias);
+        return;
+      case 'status':
+        await this.handleStatusCommand(context, selectionKey, command.detail === true);
+        return;
+      case 'kb':
+        await this.handleKnowledgeCommand(context, selectionKey, command.action, command.query);
+        return;
+      case 'doc':
+        await this.handleDocCommand(context, selectionKey, command.action, command.value, command.extra);
+        return;
+      case 'task':
+        await this.handleTaskCommand(context, selectionKey, command.action, command.value);
+        return;
+      case 'base':
+        await this.handleBaseCommand(context, selectionKey, command.action, command.appToken, command.tableId, command.recordId, command.value);
+        return;
+      case 'memory':
+        await this.handleMemoryCommand(context, selectionKey, command.action, command.scope, command.value, command.filters);
+        return;
+      case 'wiki':
+        await this.handleWikiCommand(context, selectionKey, command.action, command.value, command.extra, command.target, command.role);
+        return;
+      case 'session': {
+        const sessionArgument = command.action === 'adopt' ? command.target : command.threadId;
+        await this.handleSessionCommand(context, selectionKey, command.action, sessionArgument);
+        return;
+      }
+      case 'admin':
+        await this.handleAdminCommand(context, selectionKey, command);
+        return;
+      case 'prompt':
+        await this.handlePromptMessage(context, selectionKey, followupPrompt, context.text);
+        return;
+      default:
+        await this.handlePromptMessage(context, selectionKey, followupPrompt, context.text);
+    }
   }
 
   private async handlePromptMessage(
