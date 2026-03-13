@@ -100,9 +100,10 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('请帮我看下当前路径', { message_id: 'm-reply' }));
     expect(setup.sendText).toHaveBeenCalledWith(
       'chat',
-      expect.stringContaining('done'),
+      expect.stringContaining('状态: 已接收'),
       expect.objectContaining({ replyToMessageId: 'm-reply' }),
     );
+    expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('done');
   });
 
   it('does not include run ids in Feishu success replies', async () => {
@@ -116,7 +117,7 @@ describe('bridge service', () => {
     });
 
     await setup.service.handleIncomingMessage(buildMessage('检查输出', { message_id: 'm-no-run-id' }));
-    const replyBody = setup.sendText.mock.calls.at(-1)?.[1] as string;
+    const replyBody = setup.updateText.mock.calls.at(-1)?.[1] as string;
     expect(replyBody).toContain('done');
     expect(replyBody).not.toContain('引用:');
     expect(replyBody).not.toContain('运行:');
@@ -134,7 +135,7 @@ describe('bridge service', () => {
     expect(setup.sendText).not.toHaveBeenCalled();
   });
 
-  it('sends a single final post reply when reply_mode=post', async () => {
+  it('sends and updates a runtime card when reply_mode=post', async () => {
     const setup = await createService({
       service: {
         reply_mode: 'post',
@@ -150,15 +151,16 @@ describe('bridge service', () => {
 
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-post-lifecycle' }));
 
-    expect(setup.sendCard).not.toHaveBeenCalled();
-    expect(setup.updateCard).not.toHaveBeenCalled();
-    expect(setup.sendPost).toHaveBeenCalledTimes(1);
-    expect(setup.sendPost).toHaveBeenCalledWith('chat', expect.any(Object));
+    expect(setup.sendPost).not.toHaveBeenCalled();
     expect(setup.updatePost).not.toHaveBeenCalled();
-    expect(JSON.stringify(setup.sendPost.mock.calls[0]?.[1] ?? {})).toContain('最终结果');
+    expect(setup.sendCard).toHaveBeenCalledTimes(1);
+    expect(setup.updateCard).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(setup.sendCard.mock.calls[0]?.[1] ?? {})).toContain('已接收请求');
+    expect(JSON.stringify(setup.updateCard.mock.calls[0]?.[1] ?? {})).toContain('处理中');
+    expect(JSON.stringify(setup.updateCard.mock.calls.at(-1)?.[1] ?? {})).toContain('最终结果');
   });
 
-  it('sends only the final text reply without a processing reply', async () => {
+  it('sends an initial text status reply and updates it through completion', async () => {
     const setup = await createService();
     runCodexTurnMock.mockResolvedValue({
       sessionId: 'thread-1',
@@ -171,10 +173,11 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-update-reply' }));
 
     expect(setup.sendText).toHaveBeenCalledTimes(1);
-    expect(setup.sendText).toHaveBeenCalledWith('chat', expect.any(String));
-    expect(setup.sendText.mock.calls[0]?.[1]).not.toContain('消息接收: success');
-    expect(setup.sendText.mock.calls[0]?.[1]).toContain('最终结果');
-    expect(setup.updateText).not.toHaveBeenCalled();
+    expect(setup.sendText).toHaveBeenCalledWith('chat', expect.any(String), expect.objectContaining({ replyToMessageId: 'm-update-reply' }));
+    expect(setup.sendText.mock.calls[0]?.[1]).toContain('状态: 已接收');
+    expect(setup.updateText).toHaveBeenCalledTimes(2);
+    expect(setup.updateText.mock.calls[0]?.[1]).toContain('状态: 处理中');
+    expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('最终结果');
   });
 
   it('shows a fallback message when Codex completes without displayable text', async () => {
@@ -193,8 +196,8 @@ describe('bridge service', () => {
 
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-empty-result' }));
 
-    expect(setup.updateCard).not.toHaveBeenCalled();
-    expect(JSON.stringify(setup.sendPost.mock.calls.at(-1)?.[1] ?? {})).toContain('Codex 已完成，但没有返回可显示文本。');
+    expect(setup.sendCard).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(setup.updateCard.mock.calls.at(-1)?.[1] ?? {})).toContain('Codex 已完成，但没有返回可显示文本。');
   });
 
   it('executes natural language admin mutations immediately', async () => {
@@ -267,12 +270,12 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-card-final' }));
 
     expect(setup.sendCard).toHaveBeenCalledTimes(1);
-    expect(setup.updateCard).not.toHaveBeenCalled();
-    const payload = JSON.stringify(setup.sendCard.mock.calls[0]?.[1] ?? {});
+    expect(setup.updateCard).toHaveBeenCalledTimes(2);
+    const payload = JSON.stringify(setup.updateCard.mock.calls.at(-1)?.[1] ?? {});
     expect(payload).toContain('最终结果');
-    expect(payload).not.toContain('**项目**: default');
+    expect(payload).toContain('**项目**: default');
     expect(payload).toContain('**状态**: 已完成');
-    expect(payload).not.toContain('**阶段**: 已完成');
+    expect(payload).toContain('**阶段**: 已完成');
   });
 
   it('lets admin chats add a group id and project dynamically', async () => {

@@ -36,7 +36,7 @@ import { CodexSessionIndex } from '../codex/session-index.js';
 import { bindProjectAlias, removeProjectAlias, updateProjectConfig, updateStringList } from '../config/mutate.js';
 import { buildFeishuPost, truncateForFeishuCard } from '../feishu/text.js';
 import { ConfigHistoryStore, type ConfigSnapshot } from '../state/config-history-store.js';
-import { loadBridgeConfig } from '../config/load.js';
+import { loadBridgeConfigFile } from '../config/load.js';
 import { ensureDir, writeUtf8Atomic } from '../utils/fs.js';
 import { canAccessGlobalCapability, canAccessProject, canAccessProjectCapability, describeMinimumRole, filterAccessibleProjects, resolveProjectAccessRole, type AccessRole } from '../security/access.js';
 import { adoptProjectSession as adoptSharedProjectSession, listBridgeSessions as listSharedBridgeSessions, switchProjectBinding as switchSharedProjectBinding } from '../control-plane/project-session.js';
@@ -70,6 +70,13 @@ interface RuntimeControl {
 interface RunReplyTarget {
   messageId?: string;
   mode: BridgeConfig['service']['reply_mode'];
+}
+
+interface RunLifecycleReplyDraft {
+  title: string;
+  body: string;
+  runStatus: 'queued' | 'running';
+  runPhase: string;
 }
 
 export class CodexFeishuService {
@@ -490,6 +497,7 @@ export class CodexFeishuService {
       controller: new AbortController(),
     };
     this.activeRuns.set(input.queueKey, activeRun);
+    await this.updateRunStartedReply(input.chatId, input.projectAlias, runId);
 
     await this.runStateStore.upsertRun(runId, {
       queue_key: input.queueKey,
@@ -963,6 +971,14 @@ export class CodexFeishuService {
       },
     );
     try {
+      await this.sendInitialRunLifecycleReply({
+        chatId: context.chat_id,
+        projectAlias: projectContext.projectAlias,
+        runId: scheduled.runId,
+        queued: scheduled.queued,
+        replyToMessageId: context.message_id,
+        originalText: context.text,
+      });
     } finally {
       scheduled.release();
     }
@@ -2854,8 +2870,16 @@ export class CodexFeishuService {
     };
   }
 
-  private buildAcknowledgedRunReply(projectAlias: string, status: 'queued' | 'running', detail: string): string {
-    return [`处理状态: ${status}`, `项目: ${projectAlias}`, '', detail].join('\n');
+  private buildAcknowledgedRunReply(
+    projectAlias: string,
+    phase: '已接收' | '排队中' | '处理中',
+    detail: string,
+    mode: BridgeConfig['service']['reply_mode'],
+  ): string {
+    if (mode === 'text') {
+      return [`项目: ${projectAlias}`, `状态: ${phase}`, '', detail].join('\n');
+    }
+    return detail;
   }
 
   private buildQueuedStatusDetail(
@@ -3143,7 +3167,7 @@ export class CodexFeishuService {
   }
 
   private async reloadRuntimeConfigFromDisk(configPath: string): Promise<void> {
-    const { config: nextConfig } = await loadBridgeConfig({ cwd: process.cwd(), configPath });
+    const { config: nextConfig } = await loadBridgeConfigFile(configPath);
     replaceObject(this.config.service, nextConfig.service);
     replaceObject(this.config.codex, nextConfig.codex);
     replaceObject(this.config.storage, nextConfig.storage);
@@ -3467,6 +3491,56 @@ export class CodexFeishuService {
     return response;
   }
 
+  private buildInitialRunLifecycleReply(
+    projectAlias: string,
+    queued: QueuedExecutionNotice | null,
+    mode: BridgeConfig['service']['reply_mode'],
+  ): RunLifecycleReplyDraft {
+    if (queued) {
+      return {
+        title: '已加入排队',
+        body: this.buildAcknowledgedRunReply(projectAlias, '排队中', queued.detail, mode),
+        runStatus: 'queued',
+        runPhase: '排队中',
+      };
+    }
+
+    return {
+      title: '已接收请求',
+      body: this.buildAcknowledgedRunReply(projectAlias, '已接收', '已收到你的消息，正在准备处理。', mode),
+      runStatus: 'running',
+      runPhase: '已接收',
+    };
+  }
+
+  private async sendInitialRunLifecycleReply(input: {
+    chatId: string;
+    projectAlias: string;
+    runId: string;
+    queued: QueuedExecutionNotice | null;
+    replyToMessageId?: string;
+    originalText?: string;
+  }): Promise<void> {
+    const lifecycleMode = this.resolveRunLifecycleReplyMode();
+    const draft = this.buildInitialRunLifecycleReply(input.projectAlias, input.queued, lifecycleMode);
+    try {
+      const response = await this.sendRunLifecycleReply({
+        chatId: input.chatId,
+        projectAlias: input.projectAlias,
+        title: draft.title,
+        body: draft.body,
+        runStatus: draft.runStatus,
+        runPhase: draft.runPhase,
+        runId: input.runId,
+        replyToMessageId: input.replyToMessageId,
+        originalText: input.originalText,
+      });
+      await this.rememberRunReplyTarget(input.runId, response, lifecycleMode);
+    } catch (error) {
+      this.logger.warn({ error, runId: input.runId, projectAlias: input.projectAlias }, 'Failed to send initial lifecycle reply');
+    }
+  }
+
   private async rememberRunReplyTarget(
     runId: string,
     response: FeishuMessageResponse,
@@ -3475,6 +3549,23 @@ export class CodexFeishuService {
     this.runReplyTargets.set(runId, {
       messageId: response.message_id,
       mode,
+    });
+  }
+
+  private async updateRunStartedReply(chatId: string, projectAlias: string, runId: string): Promise<void> {
+    const target = this.runReplyTargets.get(runId);
+    if (!target?.messageId) {
+      return;
+    }
+    const body = this.buildAcknowledgedRunReply(projectAlias, '处理中', '桥接器已开始处理你的请求。', target.mode);
+    await this.updateRunLifecycleReply({
+      chatId,
+      projectAlias,
+      title: 'Codex 处理中',
+      body,
+      runStatus: 'running',
+      runPhase: '处理中',
+      runId,
     });
   }
 
@@ -3489,16 +3580,17 @@ export class CodexFeishuService {
     runId: string,
     progress: string,
   ): Promise<void> {
-    if (!this.runReplyTargets.has(runId)) {
+    const target = this.runReplyTargets.get(runId);
+    if (!target?.messageId) {
       return;
     }
     const body = [
-      `项目: ${input.projectAlias}`,
-      '处理状态: running',
-      '',
+      this.buildAcknowledgedRunReply(input.projectAlias, '处理中', '桥接器正在持续处理你的请求。', target.mode),
       '最新进展:',
       progress,
-    ].join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n\n');
     const updated = await this.updateRunLifecycleReply({
       chatId: input.chatId,
       projectAlias: input.projectAlias,

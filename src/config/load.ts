@@ -58,6 +58,27 @@ export async function loadBridgeConfig(options: { cwd?: string; configPath?: str
   }
 }
 
+export async function loadBridgeConfigFile(configPath: string, behavior: { resolveEnv?: boolean } = {}): Promise<LoadedConfig> {
+  const explicitPath = path.resolve(expandHomePath(configPath));
+  const layer = await readLayerIfExists(explicitPath, { resolveEnv: behavior.resolveEnv ?? true });
+  if (!layer) {
+    throw new Error(`Config file not found: ${explicitPath}`);
+  }
+
+  try {
+    const config = bridgeConfigSchema.parse(layer.value);
+    return {
+      config,
+      sources: [layer.path],
+    };
+  } catch (error) {
+    if (error instanceof ZodError) {
+      throw new Error(`Invalid config: ${error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`);
+    }
+    throw error;
+  }
+}
+
 const runtimeConfigSchema = z.object({
   service: z
     .object({
