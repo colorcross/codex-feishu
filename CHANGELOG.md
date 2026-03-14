@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## v0.1.16 - 2026-03-14
+
+### Highlights
+
+- 修复飞书私聊和群聊里 `切到 XLINE 项目` 这类带空格的自然语言切项目表达，避免被误当成普通 prompt 继续落到旧项目。
+- 新增“创建项目”能力，可在指定目录下直接创建项目根目录并接入 `codex-feishu` 配置。
+- 新能力覆盖三条控制面：
+  - CLI：`codex-feishu create-project <alias> <root>`
+  - 飞书管理员：`/admin project create <alias> <root>`
+  - MCP：`project.create`
+
+### Included
+
+- 自然语言项目切换修复：
+  - `src/bridge/commands.ts`
+  - `tests/commands.test.ts`
+- 项目创建能力：
+  - `src/config/mutate.ts`
+  - `src/cli.ts`
+  - `src/bridge/service.ts`
+  - `src/mcp/server.ts`
+  - `tests/bridge-service.test.ts`
+  - `tests/cli-flow.test.ts`
+  - `tests/mcp-server.test.ts`
+- 文档与官网：
+  - `README.md`
+  - `README.en.md`
+  - `docs/getting-started.md`
+  - `docs/faq.md`
+  - `website/index.html`
+  - `website/en.html`
+
 ## v0.1.15 - 2026-03-13
 
 ### Highlights
