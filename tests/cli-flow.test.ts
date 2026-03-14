@@ -92,6 +92,30 @@ describe('cli flow', () => {
     expect(print.stdout).toContain('repo-global');
   });
 
+  it('creates a project directory and binds it through the CLI', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-create-project-'));
+    tempDirs.push(cwd);
+
+    const init = runCli(['init', '--mode', 'project'], { cwd });
+    expect(init.status).toBe(0);
+
+    const projectRoot = path.join(cwd, 'nested', 'repo-new');
+    const create = runCli(['create-project', 'repo-new', projectRoot, '--config', path.join(cwd, '.codex-feishu', 'config.toml')], { cwd });
+    expect(create.status).toBe(0);
+    expect(await exists(projectRoot)).toBe(true);
+
+    const print = runCli(['print-config', '--config', path.join(cwd, '.codex-feishu', 'config.toml')], {
+      cwd,
+      env: {
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'secret_test',
+      },
+    });
+    expect(print.status).toBe(0);
+    expect(print.stdout).toContain('repo-new');
+    expect(print.stdout).toContain(projectRoot);
+  }, 15000);
+
   it('surfaces missing environment variables through doctor when config load fails', async () => {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-home-'));
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-doctor-cli-'));

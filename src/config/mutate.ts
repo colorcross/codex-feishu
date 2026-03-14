@@ -1,6 +1,8 @@
 import path from 'node:path';
 import type { ProjectConfig, SandboxMode } from './schema.js';
 import { readRawToml, writeToml } from './load.js';
+import { ensureDir } from '../utils/fs.js';
+import { expandHomePath } from '../utils/path.js';
 
 export async function bindProjectAlias(input: {
   configPath: string;
@@ -13,12 +15,36 @@ export async function bindProjectAlias(input: {
     const projects = ensureObject(raw.projects);
     projects[input.alias] = {
       ...(ensureObject(projects[input.alias]) ?? {}),
-      root: path.resolve(input.root),
+      root: resolveProjectRoot(input.root),
       ...(input.profile ? { profile: input.profile } : {}),
       ...(input.sandbox ? { sandbox: input.sandbox } : {}),
     };
     raw.projects = projects;
   });
+}
+
+export async function createProjectAlias(input: {
+  configPath: string;
+  alias: string;
+  root: string;
+  profile?: string;
+  sandbox?: SandboxMode;
+}): Promise<{ root: string }> {
+  const resolvedRoot = resolveProjectRoot(input.root);
+  await ensureDir(resolvedRoot);
+  await updateBridgeConfigFile(input.configPath, (raw) => {
+    const projects = ensureObject(raw.projects);
+    if (projects[input.alias]) {
+      throw new Error(`Project alias already exists: ${input.alias}`);
+    }
+    projects[input.alias] = {
+      root: resolvedRoot,
+      ...(input.profile ? { profile: input.profile } : {}),
+      ...(input.sandbox ? { sandbox: input.sandbox } : {}),
+    };
+    raw.projects = projects;
+  });
+  return { root: resolvedRoot };
 }
 
 export async function updateBridgeConfigFile(
@@ -72,7 +98,7 @@ export async function updateProjectConfig(
     const merged: Record<string, unknown> = {
       ...current,
       ...patch,
-      ...(patch.root ? { root: path.resolve(patch.root) } : {}),
+      ...(patch.root ? { root: resolveProjectRoot(patch.root) } : {}),
     };
     projects[alias] = merged;
     raw.projects = projects;
@@ -86,4 +112,8 @@ export async function updateProjectConfig(
 
 function ensureObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function resolveProjectRoot(input: string): string {
+  return path.resolve(expandHomePath(input));
 }

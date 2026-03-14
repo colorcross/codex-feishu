@@ -41,6 +41,12 @@ It routes Feishu messages directly into resumable Codex CLI sessions. Project bi
 ```bash
 npm install -g codex-feishu
 codex-feishu init --mode global
+
+# Create a new project directory and bind it
+codex-feishu create-project repo-new /srv/codex/repo-new
+
+# Bind an existing directory as a project
+codex-feishu bind repo-a /path/to/repo-a
 ```
 
 ### 2. Configure Environment Variables
@@ -73,6 +79,7 @@ In Feishu, you can interact with Codex directly using natural language or slash 
 # Project Management
 /projects
 /project repo-a
+/admin project create repo-new /srv/codex/repo-new
 
 # Session Management
 /session adopt latest

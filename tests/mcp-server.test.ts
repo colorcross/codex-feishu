@@ -50,6 +50,10 @@ describe('mcp server', () => {
         '[storage]',
         `dir = "${path.join(cwd, 'state')}"`,
         '',
+        '[security]',
+        'admin_chat_ids = ["chat-admin"]',
+        'operator_chat_ids = ["chat-1"]',
+        '',
         '[feishu]',
         'app_id = "app-id"',
         'app_secret = "app-secret"',
@@ -102,6 +106,7 @@ describe('mcp server', () => {
     );
     const toolNames = ((tools?.result as { tools: Array<{ name: string }> }).tools ?? []).map((tool) => tool.name);
     expect(toolNames).toContain('projects.list');
+    expect(toolNames).toContain('project.create');
     expect(toolNames).toContain('project.switch');
     expect(toolNames).toContain('sessions.list');
     expect(toolNames).toContain('session.adopt');
@@ -149,6 +154,24 @@ describe('mcp server', () => {
       projectAlias: 'repo-b',
       autoAdoption: { kind: 'adopted' },
     });
+
+    const createdRoot = path.join(cwd, 'repo-c');
+    const created = await handleMcpRequest(
+      {
+        jsonrpc: '2.0',
+        id: 51,
+        method: 'tools/call',
+        params: { name: 'project.create', arguments: { chatId: 'chat-admin', projectAlias: 'repo-c', root: createdRoot } },
+      },
+      { cwd, configPath },
+    );
+    expect((created?.result as { structuredContent?: { alias: string; root: string; created: boolean } }).structuredContent).toMatchObject({
+      alias: 'repo-c',
+      root: createdRoot,
+      created: true,
+    });
+    const createdStat = await fs.stat(createdRoot);
+    expect(createdStat.isDirectory()).toBe(true);
 
     const savedSessions = await handleMcpRequest(
       {

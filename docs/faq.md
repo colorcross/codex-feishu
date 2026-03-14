@@ -175,12 +175,18 @@ admin_chat_ids = ["oc_admin_chat_1"]
 ```text
 /admin group add <chat_id>
 /admin chat add <chat_id>
+/admin project create <alias> <root>
 /admin project add <alias> <root>
 /admin project set <alias> <field> <value>
 /admin config history
 /admin config rollback <id|latest>
 /admin service restart
 ```
+
+其中：
+
+- `/admin project create <alias> <root>`：会先创建目录，再把它接入项目配置
+- `/admin project add <alias> <root>`：只接入已有目录
 
 如果只想把单个项目授权给专门的管理员 chat，可在项目里单独加：
 

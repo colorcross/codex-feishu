@@ -9,6 +9,7 @@ import { buildQueueKey } from '../bridge/service.js';
 import { adoptProjectSession as adoptSharedProjectSession, listBridgeSessions as listSharedBridgeSessions, renderSessionMatch, resolveProjectContext as resolveSharedProjectContext, switchProjectBinding as switchSharedProjectBinding, type ConversationRef, type ResolvedProjectContext } from '../control-plane/project-session.js';
 import { CodexSessionIndex } from '../codex/session-index.js';
 import { loadBridgeConfig, loadRuntimeConfig } from '../config/load.js';
+import { createProjectAlias } from '../config/mutate.js';
 import type { BridgeConfig, McpTransport } from '../config/schema.js';
 import { canAccessGlobalCapability, canAccessProjectCapability, describeMinimumRole, filterAccessibleProjects } from '../security/access.js';
 import { ConfigHistoryStore } from '../state/config-history-store.js';
@@ -101,6 +102,19 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
         ...CONVERSATION_SCHEMA_PROPERTIES,
       },
       required: ['chatId', 'projectAlias'],
+    },
+  },
+  {
+    name: 'project.create',
+    description: 'Create a project directory on disk and bind it as a new project alias in the writable config.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        ...CONVERSATION_SCHEMA_PROPERTIES,
+        root: { type: 'string' },
+      },
+      required: ['chatId', 'projectAlias', 'root'],
     },
   },
   {
@@ -346,6 +360,40 @@ async function handleToolCall(params: Record<string, unknown>, options: { cwd: s
         requireString(argumentsObject, 'projectAlias'),
       );
       return buildToolResult(switched.text, switched.structured);
+    }
+    case 'project.create': {
+      const { config, sources } = await loadBridgeConfig({ cwd: options.cwd, configPath: options.configPath });
+      const chatId = requireString(argumentsObject, 'chatId');
+      if (!canAccessGlobalCapability(config, chatId, 'config:mutate')) {
+        throw new Error('Current chat is not allowed to create projects.');
+      }
+      const writableConfigPath = resolveWritableConfigPath(options.configPath, sources);
+      if (!writableConfigPath) {
+        throw new Error('No writable config path resolved for project creation.');
+      }
+      const alias = requireString(argumentsObject, 'projectAlias');
+      if (config.projects[alias]) {
+        throw new Error(`Project alias already exists: ${alias}`);
+      }
+      const root = requireString(argumentsObject, 'root');
+      const history = new ConfigHistoryStore(config.storage.dir);
+      const snapshot = await history.recordSnapshot({
+        configPath: writableConfigPath,
+        action: 'project.create',
+        summary: `${alias} -> ${root}`,
+        chatId,
+        actorId: readOptionalString(argumentsObject, 'actorId'),
+        limit: 5,
+      });
+      const created = await createProjectAlias({
+        configPath: writableConfigPath,
+        alias,
+        root,
+      });
+      return buildToolResult(
+        `Created project ${alias} at ${created.root}. Restart the service if it should pick up the new project immediately.`,
+        { alias, root: created.root, snapshotId: snapshot.id, created: true },
+      );
     }
     case 'sessions.list': {
       const { config } = await loadBridgeConfig({ cwd: options.cwd, configPath: options.configPath });

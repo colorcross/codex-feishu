@@ -33,11 +33,12 @@ import { MemoryStore } from '../state/memory-store.js';
 import { retrieveMemoryContext, type MemoryContext } from '../memory/retrieve.js';
 import { summarizeThreadTurn } from '../memory/summarize.js';
 import { CodexSessionIndex } from '../codex/session-index.js';
-import { bindProjectAlias, removeProjectAlias, updateProjectConfig, updateStringList } from '../config/mutate.js';
+import { bindProjectAlias, createProjectAlias, removeProjectAlias, updateProjectConfig, updateStringList } from '../config/mutate.js';
 import { buildFeishuPost, truncateForFeishuCard } from '../feishu/text.js';
 import { ConfigHistoryStore, type ConfigSnapshot } from '../state/config-history-store.js';
 import { loadBridgeConfigFile } from '../config/load.js';
 import { ensureDir, writeUtf8Atomic } from '../utils/fs.js';
+import { expandHomePath } from '../utils/path.js';
 import { canAccessGlobalCapability, canAccessProject, canAccessProjectCapability, describeMinimumRole, filterAccessibleProjects, resolveProjectAccessRole, type AccessRole } from '../security/access.js';
 import { adoptProjectSession as adoptSharedProjectSession, listBridgeSessions as listSharedBridgeSessions, switchProjectBinding as switchSharedProjectBinding } from '../control-plane/project-session.js';
 import { getProjectArchiveDir, getProjectAuditDir, getProjectAuditFile, getProjectCacheDir, getProjectDownloadsDir, getProjectTempDir } from '../projects/paths.js';
@@ -1219,19 +1220,33 @@ export class CodexFeishuService {
         );
         return;
       }
-      if (command.action === 'add') {
+      if (command.action === 'add' || command.action === 'create') {
         if (!(globalAdmin || globalConfigAdmin)) {
           await this.sendTextReply(context.chat_id, '当前 chat_id 无权动态接入项目。', context.message_id, context.text);
           return;
         }
         if (!command.alias || !command.value) {
-          await this.sendTextReply(context.chat_id, '用法: /admin project add <alias> <root>', context.message_id, context.text);
+          await this.sendTextReply(
+            context.chat_id,
+            command.action === 'create' ? '用法: /admin project create <alias> <root>' : '用法: /admin project add <alias> <root>',
+            context.message_id,
+            context.text,
+          );
           return;
         }
-        const snapshot = await this.snapshotConfigForAdminMutation(context, 'project.add', `${command.alias} -> ${path.resolve(command.value)}`);
-        await bindProjectAlias({ configPath: runtimeConfigPath!, alias: command.alias, root: command.value });
+        if (command.action === 'create' && this.config.projects[command.alias]) {
+          await this.sendTextReply(context.chat_id, `项目已存在: ${command.alias}`, context.message_id, context.text);
+          return;
+        }
+        const resolvedRoot = path.resolve(expandHomePath(command.value));
+        const snapshot = await this.snapshotConfigForAdminMutation(context, `project.${command.action}`, `${command.alias} -> ${resolvedRoot}`);
+        if (command.action === 'create') {
+          await createProjectAlias({ configPath: runtimeConfigPath!, alias: command.alias, root: command.value });
+        } else {
+          await bindProjectAlias({ configPath: runtimeConfigPath!, alias: command.alias, root: command.value });
+        }
         this.config.projects[command.alias] = {
-          root: path.resolve(command.value),
+          root: resolvedRoot,
           session_scope: 'chat',
           mention_required: true,
           knowledge_paths: [],
@@ -1246,16 +1261,24 @@ export class CodexFeishuService {
           chat_rate_limit_window_seconds: 60,
           chat_rate_limit_max_runs: 20,
         };
-        await this.sendTextReply(context.chat_id, `已接入项目: ${command.alias}\n根目录: ${path.resolve(command.value)}`, context.message_id, context.text);
+        await this.sendTextReply(
+          context.chat_id,
+          `${command.action === 'create' ? '已创建并接入项目' : '已接入项目'}: ${command.alias}\n根目录: ${resolvedRoot}`,
+          context.message_id,
+          context.text,
+        );
         await this.appendAdminAudit({
-          type: 'admin.project.add',
+          type: `admin.project.${command.action}`,
           chat_id: context.chat_id,
           actor_id: context.actor_id,
           project_alias: command.alias,
-          root: path.resolve(command.value),
+          root: resolvedRoot,
           snapshot_id: snapshot.id,
         });
-        this.logger.info({ alias: command.alias, root: path.resolve(command.value), actorId: context.actor_id }, 'Project added by Feishu admin');
+        this.logger.info(
+          { alias: command.alias, root: resolvedRoot, actorId: context.actor_id, created: command.action === 'create' },
+          command.action === 'create' ? 'Project created by Feishu admin' : 'Project added by Feishu admin',
+        );
         return;
       }
       if (command.action === 'remove') {

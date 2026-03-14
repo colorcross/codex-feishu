@@ -110,9 +110,13 @@ codex-feishu status
 ## 绑定多个项目
 
 ```bash
+codex-feishu create-project repo-new /abs/path/to/repo-new
 codex-feishu bind repo-a /abs/path/to/repo-a
 codex-feishu bind repo-b /abs/path/to/repo-b
 ```
+
+- `create-project`：目录不存在时，递归创建目录并接入项目
+- `bind`：目录已经存在时，直接接入项目
 
 飞书里切换项目：
 
@@ -232,7 +236,7 @@ allowed_group_ids = ["oc_group_1", "oc_group_2"]
 - `codex-feishu upgrade --check`：检查 npm 是否有新版本
 - `codex-feishu upgrade --yes`：从 npm 全局升级到最新版本
 - `codex-feishu mcp`：启动 MCP 服务，供 OpenClaw 等外部工具接入
-  - 可通过 `project.switch` / `session.adopt` 做项目切换和本地会话接管
+  - 可通过 `project.create` / `project.switch` / `session.adopt` 做项目创建、切换和本地会话接管
   - 可通过 `command.interpret` / `command.execute` 安全解释并执行自然语言控制命令
   - `--transport http` 可直接暴露 HTTP/SSE MCP 入口
   - 可使用 `mcp.auth_tokens` 或 `--auth-token --auth-token-id` 做多 token/轮换
@@ -371,6 +375,7 @@ admin_chat_ids = ["oc_admin_chat_1"]
 /admin chat add <chat_id>
 /admin chat remove <chat_id>
 /admin project list
+/admin project create <alias> <root>
 /admin project add <alias> <root>
 /admin project remove <alias>
 /admin project set <alias> <field> <value>
@@ -378,6 +383,10 @@ admin_chat_ids = ["oc_admin_chat_1"]
 /admin config rollback <id|latest>
 /admin service restart
 ```
+
+说明：
+- `/admin project create <alias> <root>`：在指定目录递归创建项目根目录，并把它接入当前实例配置。
+- `/admin project add <alias> <root>`：目录已经存在时，把它接入当前实例配置。
 
 这组命令会直接更新当前实例对应的可写配置文件；`/admin service restart` 会保存后重启服务。
 

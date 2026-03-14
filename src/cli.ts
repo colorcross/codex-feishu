@@ -17,7 +17,7 @@ import { FeishuClient } from './feishu/client.js';
 import { CodexFeishuService } from './bridge/service.js';
 import { startLongConnectionBridge } from './feishu/long-connection.js';
 import { startWebhookBridge } from './feishu/webhook.js';
-import { bindProjectAlias } from './config/mutate.js';
+import { bindProjectAlias, createProjectAlias } from './config/mutate.js';
 import type { BridgeConfig, SandboxMode } from './config/schema.js';
 import { findMissingEnvRefs, formatDoctorFinding, hasDoctorErrors, runDoctor, runRemoteDoctor } from './config/doctor.js';
 import { installBundledCodexSkill } from './config/codex-skill.js';
@@ -32,6 +32,7 @@ import { buildReplayCardAction, buildReplayMessageEvent, postWebhookPayload, req
 import { isProcessAlive, terminateProcess } from './runtime/process.js';
 import { startMcpServer } from './mcp/server.js';
 import { getProjectArchiveDir, getProjectAuditDir } from './projects/paths.js';
+import { expandHomePath } from './utils/path.js';
 
 const logger = createLogger();
 const program = new Command();
@@ -458,7 +459,37 @@ program
         profile: options.profile,
         sandbox: options.sandbox,
       });
-      console.log(`Bound ${alias} -> ${path.resolve(root)} in ${configPath}`);
+      console.log(`Bound ${alias} -> ${path.resolve(expandHomePath(root))} in ${configPath}`);
+    },
+  );
+
+program
+  .command('create-project <alias> <root>')
+  .description('Create a project directory and bind it as a new project alias')
+  .option('--config <path>', 'config path override')
+  .option('--profile <profile>', 'Codex profile for this project')
+  .option('--sandbox <sandbox>', 'Sandbox override for this project')
+  .action(
+    async (
+      alias: string,
+      root: string,
+      options: { config?: string; profile?: string; sandbox?: SandboxMode },
+    ) => {
+      const projectConfigPath = options.config ? null : await findNearestProjectConfig(process.cwd());
+      const configPath = options.config
+        ? path.resolve(options.config)
+        : projectConfigPath ?? getGlobalConfigPath();
+      if (!(await fileExists(configPath))) {
+        throw new Error(`Config file not found: ${configPath}`);
+      }
+      const created = await createProjectAlias({
+        configPath,
+        alias,
+        root,
+        profile: options.profile,
+        sandbox: options.sandbox,
+      });
+      console.log(`Created ${alias} -> ${created.root} in ${configPath}`);
     },
   );
 

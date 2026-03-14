@@ -278,20 +278,25 @@ describe('bridge service', () => {
     expect(payload).toContain('**阶段**: 已完成');
   });
 
-  it('lets admin chats add a group id and project dynamically', async () => {
+  it('lets admin chats add a group id, create a project, and update it dynamically', async () => {
     const setup = await createService({
       security: {
         admin_chat_ids: ['chat'],
       },
     });
+    const projectCreateRoot = path.join(setup.config.storage.dir, 'repo-c');
 
     await setup.service.handleIncomingMessage(buildMessage('/admin group add oc_group_1', { message_id: 'm-admin-group' }));
+    await setup.service.handleIncomingMessage(buildMessage(`/admin project create repo-c ${projectCreateRoot}`, { message_id: 'm-admin-project-create' }));
     await setup.service.handleIncomingMessage(buildMessage('/admin project add repo-b /tmp/repo-b', { message_id: 'm-admin-project' }));
     await setup.service.handleIncomingMessage(buildMessage('/admin project set repo-b mention_required false', { message_id: 'm-admin-project-set' }));
 
     expect(setup.config.feishu.allowed_group_ids).toContain('oc_group_1');
+    expect(setup.config.projects['repo-c']?.root).toBe(projectCreateRoot);
     expect(setup.config.projects['repo-b']?.root).toBe('/tmp/repo-b');
     expect(setup.config.projects['repo-b']?.mention_required).toBe(false);
+    const createdDir = await fs.stat(projectCreateRoot);
+    expect(createdDir.isDirectory()).toBe(true);
   });
 
   it('lets admin restart the service from Feishu', async () => {

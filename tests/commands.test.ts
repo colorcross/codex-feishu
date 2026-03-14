@@ -25,6 +25,13 @@ describe('bridge commands', () => {
       alias: 'repo-b',
       value: '/srv/repos/repo-b',
     });
+    expect(parseBridgeCommand('/admin project create repo-c /srv/repos/repo-c')).toEqual({
+      kind: 'admin',
+      resource: 'project',
+      action: 'create',
+      alias: 'repo-c',
+      value: '/srv/repos/repo-c',
+    });
     expect(parseBridgeCommand('/admin project set repo-b mention_required true')).toEqual({
       kind: 'admin',
       resource: 'project',
@@ -218,6 +225,13 @@ describe('bridge commands', () => {
       alias: 'repo-b',
       value: '/srv/repos/repo-b',
     });
+    expect(parseBridgeCommand('创建项目 repo-c /srv/repos/repo-c')).toEqual({
+      kind: 'admin',
+      resource: 'project',
+      action: 'create',
+      alias: 'repo-c',
+      value: '/srv/repos/repo-c',
+    });
     expect(parseBridgeCommand('修改项目 repo-b mention_required false')).toEqual({
       kind: 'admin',
       resource: 'project',
@@ -245,6 +259,7 @@ describe('bridge commands', () => {
     expect(helpText).toContain('/session adopt list');
     expect(helpText).toContain('/admin status');
     expect(helpText).toContain('/admin runs');
+    expect(helpText).toContain('/admin project create <alias> <root>');
     expect(helpText).toContain('/admin config history');
     expect(helpText).toContain('/admin config rollback <id|latest>');
     expect(helpText).toContain('/admin service restart');

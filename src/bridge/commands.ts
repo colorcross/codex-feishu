@@ -7,7 +7,7 @@ export interface MemoryCommandFilters {
 
 export type AdminResource = 'viewer' | 'operator' | 'admin' | 'service-observer' | 'service-restart' | 'config-admin' | 'group' | 'chat' | 'project' | 'service' | 'config';
 export type AdminListAction = 'status' | 'list' | 'add' | 'remove';
-export type AdminProjectAction = 'add' | 'remove' | 'set' | 'list';
+export type AdminProjectAction = 'add' | 'create' | 'remove' | 'set' | 'list';
 export type AdminConfigAction = 'history' | 'rollback';
 
 export type BridgeCommand =
@@ -188,7 +188,8 @@ export function buildHelpText(): string {
     '/admin chat add <chat_id> 允许一个私聊接入',
     '/admin chat remove <chat_id> 移除一个私聊接入',
     '/admin project list 查看当前项目列表',
-    '/admin project add <alias> <root> 动态接入项目',
+    '/admin project add <alias> <root> 动态接入已有项目目录',
+    '/admin project create <alias> <root> 创建目录并接入新项目',
     '/admin project remove <alias> 移除项目',
     '/admin project set <alias> <field> <value> 修改项目配置',
     '/admin config history 查看最近 5 次配置快照',
@@ -408,6 +409,14 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
     return { kind: 'admin', resource: 'chat', action: 'remove', value: removeChatMatch[1] };
   }
 
+  const createProjectMatch = normalized.match(/^(?:创建项目|新建项目)\s+(\S+)\s+(.+)$/);
+  if (createProjectMatch) {
+    const [, alias, root] = createProjectMatch;
+    if (!alias || !root) {
+      return null;
+    }
+    return { kind: 'admin', resource: 'project', action: 'create', alias, value: root.trim() };
+  }
   const addProjectMatch = normalized.match(/^添加项目\s+(\S+)\s+(.+)$/);
   if (addProjectMatch) {
     const [, alias, root] = addProjectMatch;
@@ -489,6 +498,9 @@ function parseAdminCommand(argument: string): BridgeCommand {
     }
     if (action === 'add') {
       return { kind: 'admin', resource: 'project', action: 'add', alias: rest[0], value: rest.slice(1).join(' ').trim() || undefined };
+    }
+    if (action === 'create') {
+      return { kind: 'admin', resource: 'project', action: 'create', alias: rest[0], value: rest.slice(1).join(' ').trim() || undefined };
     }
     if (action === 'remove') {
       return { kind: 'admin', resource: 'project', action: 'remove', alias: rest[0] };
