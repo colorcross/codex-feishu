@@ -129,6 +129,7 @@ reply_mode = "card"  # text | post | card
 [codex]
 bin = "codex"
 default_sandbox = "workspace-write"
+run_timeout_ms = 1800000  # 30 minutes
 
 [storage]
 dir = "~/.codex-feishu/state"

@@ -114,7 +114,7 @@ export const bridgeConfigSchema = z.object({
       skip_git_repo_check: z.boolean().default(true),
       output_token_limit: z.number().int().positive().default(4000),
       bridge_instructions: z.string().default(''),
-      run_timeout_ms: z.number().int().positive().default(600000),
+      run_timeout_ms: z.number().int().positive().default(1800000),
     })
     .default({
       bin: 'codex',
@@ -122,7 +122,7 @@ export const bridgeConfigSchema = z.object({
       skip_git_repo_check: true,
       output_token_limit: 4000,
       bridge_instructions: '',
-      run_timeout_ms: 600000,
+      run_timeout_ms: 1800000,
     }),
   storage: z
     .object({

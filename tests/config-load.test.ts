@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadBridgeConfig } from '../src/config/load.js';
+import { buildInitialConfig } from '../src/config/init.js';
+import { loadBridgeConfig, loadBridgeConfigFile } from '../src/config/load.js';
 
 const tempDirs: string[] = [];
 
@@ -59,5 +60,36 @@ describe('config load', () => {
     expect(loaded.config.projects['repo-a']?.root).toBe(repo);
     expect(loaded.config.projects['repo-b']?.root).toBe(repo);
     expect(loaded.config.feishu.app_id).toBe('cli_test');
+  });
+
+  it('defaults run_timeout_ms to 30 minutes and seeds init templates with the same value', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-home-'));
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-repo-'));
+    tempDirs.push(home, repo);
+
+    process.env.FEISHU_APP_ID = 'cli_test';
+    process.env.FEISHU_APP_SECRET = 'secret_test';
+
+    const configPath = path.join(home, '.codex-feishu', 'config.toml');
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(
+      configPath,
+      [
+        'version = 1',
+        '',
+        '[feishu]',
+        'app_id = "env:FEISHU_APP_ID"',
+        'app_secret = "env:FEISHU_APP_SECRET"',
+        '',
+        '[projects.repo-a]',
+        `root = "${repo}"`,
+      ].join('\n'),
+      'utf8',
+    );
+
+    const loaded = await loadBridgeConfigFile(configPath);
+    expect(loaded.config.codex.run_timeout_ms).toBe(1_800_000);
+    expect(buildInitialConfig('global', repo)).toContain('run_timeout_ms = 1800000');
+    expect(buildInitialConfig('project', repo)).toContain('run_timeout_ms = 1800000');
   });
 });

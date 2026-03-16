@@ -18,7 +18,7 @@ bin = "codex"
 # pre_exec = "proxy_on"
 default_sandbox = "workspace-write"
 skip_git_repo_check = true
-run_timeout_ms = 600000
+run_timeout_ms = 1800000
 bridge_instructions = "Reply in concise Chinese for Feishu."
 
 [storage]

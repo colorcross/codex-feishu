@@ -129,7 +129,7 @@ function buildConfig(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
       skip_git_repo_check: true,
       output_token_limit: 4000,
       bridge_instructions: '',
-      run_timeout_ms: 600000,
+      run_timeout_ms: 1800000,
       ...(overrides.codex ?? {}),
     },
     storage: {

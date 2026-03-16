@@ -53,7 +53,7 @@ bin = "codex"
 default_sandbox = "workspace-write"
 skip_git_repo_check = true
 output_token_limit = 4000
-run_timeout_ms = 600000
+run_timeout_ms = 1800000
 bridge_instructions = "Reply concisely for Feishu. Include changed files and verification when relevant."
 
 [storage]
