@@ -343,6 +343,7 @@ function normalizeProjectSession(input?: Partial<ProjectSessionState>): ProjectS
   return {
     thread_id: activeThreadId,
     active_thread_id: activeThreadId,
+    active_backend: input?.active_backend,
     last_prompt: activeThreadId ? sessions[activeThreadId]?.last_prompt ?? input?.last_prompt : input?.last_prompt,
     last_response_excerpt: activeThreadId ? sessions[activeThreadId]?.last_response_excerpt ?? input?.last_response_excerpt : input?.last_response_excerpt,
     updated_at: updatedAt,

@@ -86,6 +86,30 @@ describe('session store', () => {
     expect(afterDrop?.projects['repo-a']?.thread_id).toBe('thread-2');
   });
 
+  it('persists active_backend through setProjectBackend and upsertProjectSession', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-feishu-store-'));
+    tempDirs.push(dir);
+    const store = new SessionStore(dir);
+    const key = buildConversationKey({ tenantKey: 'tenant', chatId: 'chat', actorId: 'user', scope: 'chat-user' });
+
+    await store.ensureConversation(key, {
+      chat_id: 'chat',
+      actor_id: 'user',
+      tenant_key: 'tenant',
+      scope: 'chat-user',
+    });
+
+    await store.setProjectBackend(key, 'repo-a', 'claude');
+    expect(await store.getProjectBackend(key, 'repo-a')).toBe('claude');
+
+    // upsertProjectSession normalizes internally — verify active_backend is preserved
+    await store.upsertProjectSession(key, 'repo-a', {
+      thread_id: 'thread-1',
+      last_prompt: 'hello',
+    });
+    expect(await store.getProjectBackend(key, 'repo-a')).toBe('claude');
+  });
+
   it('builds different keys for shared and actor-scoped sessions', () => {
     const shared = buildConversationKey({ tenantKey: 'tenant', chatId: 'chat', scope: 'chat' });
     const actor = buildConversationKey({ tenantKey: 'tenant', chatId: 'chat', actorId: 'user', scope: 'chat-user' });

@@ -559,7 +559,9 @@ export class CodexFeishuService {
         workdir: input.project.root,
         prompt: bridgePrompt,
         sessionId: currentSession?.thread_id,
-        timeoutMs: this.config.codex.run_timeout_ms,
+        timeoutMs: backend.name === 'claude'
+          ? (this.config.claude?.run_timeout_ms ?? this.config.codex.run_timeout_ms)
+          : this.config.codex.run_timeout_ms,
         signal: activeRun.controller.signal,
         logger: this.logger,
         projectConfig: backend.name === 'codex'
@@ -634,6 +636,7 @@ export class CodexFeishuService {
         session_id: result.sessionId,
         exit_code: result.exitCode,
         duration_ms: Date.now() - startedAt,
+        backend: backend.name,
       });
       await this.appendProjectAuditEvent(input.projectAlias, input.project, {
         type: 'codex.run.completed',
@@ -642,6 +645,7 @@ export class CodexFeishuService {
         actor_id: input.actorId,
         session_id: result.sessionId,
         duration_ms: Date.now() - startedAt,
+        backend: backend.name,
       });
       this.logger.info(
         {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHelpText, normalizeIncomingText, parseBridgeCommand } from '../src/bridge/commands.js';
+import { buildHelpText, describeBridgeCommand, isReadOnlyCommand, normalizeIncomingText, parseBridgeCommand } from '../src/bridge/commands.js';
 
 describe('bridge commands', () => {
   it('parses project switch commands', () => {
@@ -247,6 +247,48 @@ describe('bridge commands', () => {
 
   it('normalizes leading mentions', () => {
     expect(normalizeIncomingText('@Codex   帮我看下这个报错')).toBe('帮我看下这个报错');
+  });
+
+  describe('backend command', () => {
+    it('parses /backend with no name', () => {
+      expect(parseBridgeCommand('/backend')).toEqual({ kind: 'backend' });
+    });
+
+    it('parses /backend codex', () => {
+      expect(parseBridgeCommand('/backend codex')).toEqual({ kind: 'backend', name: 'codex' });
+    });
+
+    it('parses /backend claude', () => {
+      expect(parseBridgeCommand('/backend claude')).toEqual({ kind: 'backend', name: 'claude' });
+    });
+
+    it('parses natural language: 后端切换到 claude', () => {
+      expect(parseBridgeCommand('后端切换到 claude')).toEqual({ kind: 'backend', name: 'claude' });
+    });
+
+    it('parses natural language: 切换后端到 codex', () => {
+      expect(parseBridgeCommand('切换后端到 codex')).toEqual({ kind: 'backend', name: 'codex' });
+    });
+
+    it('parses natural language: 查看当前后端', () => {
+      expect(parseBridgeCommand('查看当前后端')).toEqual({ kind: 'backend' });
+    });
+
+    it('isReadOnlyCommand returns true for /backend (no name)', () => {
+      const cmd = parseBridgeCommand('/backend');
+      expect(isReadOnlyCommand(cmd)).toBe(true);
+    });
+
+    it('isReadOnlyCommand returns false for /backend claude', () => {
+      const cmd = parseBridgeCommand('/backend claude');
+      expect(isReadOnlyCommand(cmd)).toBe(false);
+    });
+
+    it('describeBridgeCommand returns appropriate strings', () => {
+      expect(describeBridgeCommand({ kind: 'backend' })).toBe('查看当前后端');
+      expect(describeBridgeCommand({ kind: 'backend', name: 'claude' })).toBe('切换后端到 claude');
+      expect(describeBridgeCommand({ kind: 'backend', name: 'codex' })).toBe('切换后端到 codex');
+    });
   });
 
   it('renders help text with key commands', () => {
