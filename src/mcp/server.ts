@@ -17,6 +17,13 @@ import { RunStateStore } from '../state/run-state-store.js';
 import { SessionStore, buildConversationKey } from '../state/session-store.js';
 import { fileExists, writeUtf8Atomic } from '../utils/fs.js';
 import { getProjectCacheDir, getProjectDownloadsDir, getProjectLogDir, getProjectTempDir } from '../projects/paths.js';
+import { AuditLog } from '../state/audit-log.js';
+import { MemoryStore } from '../state/memory-store.js';
+import { TrustStore } from '../state/trust-store.js';
+import { buildTeamActivityView, formatTeamView } from '../collaboration/awareness.js';
+import { analyzeTeamHealth, formatInsightsReport } from '../collaboration/insights.js';
+import { buildProjectTimeline, formatTimeline } from '../collaboration/timeline.js';
+import { formatTrustState, createInitialTrustState, type TrustLevel } from '../collaboration/trust.js';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -223,6 +230,49 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
         chatId: { type: 'string' },
       },
       required: ['chatId'],
+    },
+  },
+  {
+    name: 'team.activity',
+    description: 'Get current team activity view showing who is working on what.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    },
+  },
+  {
+    name: 'team.insights',
+    description: 'Get team health report: retry patterns, duplicate work, queue bottlenecks, error clusters.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    },
+  },
+  {
+    name: 'project.timeline',
+    description: 'Get project activity timeline including runs, knowledge, and config changes.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        projectAlias: { type: 'string' },
+      },
+      required: ['projectAlias'],
+    },
+  },
+  {
+    name: 'project.trust',
+    description: 'Get or set the trust level for a project. Trust levels control what AI can do autonomously.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        projectAlias: { type: 'string' },
+        level: { type: 'string', enum: ['observe', 'suggest', 'execute', 'autonomous'] },
+      },
+      required: ['projectAlias'],
     },
   },
 ];
@@ -485,6 +535,61 @@ async function handleToolCall(params: Record<string, unknown>, options: { cwd: s
       const writableConfigPath = resolveWritableConfigPath(options.configPath, sources);
       await restartServiceProcess(options.cwd, writableConfigPath);
       return buildToolResult('Service restart command submitted.', { restarted: true, service: config.service.name });
+    }
+    case 'team.activity': {
+      const { config } = await loadRuntimeConfig({ cwd: options.cwd, configPath: options.configPath });
+      const runStateStore = new RunStateStore(config.storage.dir);
+      const runs = await runStateStore.listRuns();
+      const activities = buildTeamActivityView(runs);
+      const text = formatTeamView(activities);
+      return buildToolResult(text, { activities });
+    }
+    case 'team.insights': {
+      const { config } = await loadRuntimeConfig({ cwd: options.cwd, configPath: options.configPath });
+      const runStateStore = new RunStateStore(config.storage.dir);
+      const auditLog = new AuditLog(config.storage.dir);
+      const runs = await runStateStore.listRuns();
+      const auditEvents = await auditLog.tail(500);
+      const insights = analyzeTeamHealth(runs, auditEvents);
+      const text = formatInsightsReport(insights);
+      return buildToolResult(text, { insights });
+    }
+    case 'project.timeline': {
+      const { config } = await loadRuntimeConfig({ cwd: options.cwd, configPath: options.configPath });
+      const projectAlias = requireString(argumentsObject, 'projectAlias');
+      const runStateStore = new RunStateStore(config.storage.dir);
+      const memoryStore = new MemoryStore(config.storage.dir);
+      const auditLog = new AuditLog(config.storage.dir);
+      const runs = await runStateStore.listRuns();
+      const memories = await memoryStore.listRecentProjectMemories(projectAlias, 100);
+      const auditEvents = await auditLog.tail(500);
+      const timeline = buildProjectTimeline(runs, memories, auditEvents, projectAlias);
+      const text = formatTimeline(timeline);
+      return buildToolResult(text, { projectAlias, timeline });
+    }
+    case 'project.trust': {
+      const { config } = await loadRuntimeConfig({ cwd: options.cwd, configPath: options.configPath });
+      const projectAlias = requireString(argumentsObject, 'projectAlias');
+      const trustStore = new TrustStore(config.storage.dir);
+      const levelInput = readOptionalString(argumentsObject, 'level');
+      if (levelInput) {
+        const validLevels: TrustLevel[] = ['observe', 'suggest', 'execute', 'autonomous'];
+        if (!validLevels.includes(levelInput as TrustLevel)) {
+          throw new Error(`Invalid trust level: ${levelInput}. Must be one of: ${validLevels.join(', ')}`);
+        }
+        const existing = await trustStore.get(projectAlias);
+        const updated = existing
+          ? { ...existing, current_level: levelInput as TrustLevel, last_evaluated_at: new Date().toISOString() }
+          : createInitialTrustState(projectAlias, levelInput as TrustLevel);
+        await trustStore.update(projectAlias, updated);
+        return buildToolResult(
+          `已将项目 ${projectAlias} 的信任等级设置为: ${levelInput}`,
+          { projectAlias, level: levelInput, state: updated },
+        );
+      }
+      const state = await trustStore.getOrCreate(projectAlias);
+      const text = formatTrustState(state);
+      return buildToolResult(text, { projectAlias, state });
     }
     default:
       throw new Error(`Unknown tool: ${name}`);

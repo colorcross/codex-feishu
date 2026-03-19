@@ -164,6 +164,7 @@ describe('doctor', () => {
     expect(messages).toContain(`[info] Project repo-a root found: ${projectRoot}`);
     expect(messages).toContain(`[warn] Project repo-a has mention_required=false; group chats can trigger runs without @mention.`);
     expect(messages).toContain(`[warn] Project repo-a is not a Git repository: ${projectRoot}`);
+    expect(messages).toContain('[info] 使用本地向量化（无需外部服务）');
   });
 
   it('finds missing env references from config files', async () => {
@@ -199,6 +200,140 @@ describe('doctor', () => {
     expect(formatDoctorFinding({ level: 'warn', message: 'warning' })).toBe('[warn] warning');
     expect(hasDoctorErrors([{ level: 'info', message: 'ok' }, { level: 'error', message: 'broken' }])).toBe(true);
     expect(hasDoctorErrors([{ level: 'warn', message: 'watch this' }])).toBe(false);
+  });
+
+  it('checks Ollama embedding health when provider is ollama', async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'feique-doctor-ollama-'));
+    tempDirs.push(workspace);
+
+    const projectRoot = path.join(workspace, 'repo-a');
+    await fs.mkdir(projectRoot, { recursive: true });
+
+    const baseConfig: BridgeConfig = {
+      version: 1,
+      service: {
+        name: 'feique',
+        default_project: 'repo-a',
+        project_switch_auto_adopt_latest: false,
+        reply_mode: 'text',
+        emit_progress_updates: false,
+        progress_update_interval_ms: 4000,
+        metrics_host: '127.0.0.1',
+        idempotency_ttl_seconds: 300,
+        session_history_limit: 20,
+        log_tail_lines: 100,
+        log_rotate_max_bytes: 10 * 1024 * 1024,
+        log_rotate_keep_files: 5,
+        reply_quote_user_message: false,
+        reply_quote_max_chars: 120,
+        download_message_resources: false,
+        transcribe_audio_messages: false,
+        describe_image_messages: false,
+        openai_image_model: 'gpt-4.1-mini',
+        memory_enabled: false,
+        memory_search_limit: 3,
+        memory_recent_limit: 5,
+        memory_prompt_max_chars: 1600,
+        thread_summary_max_chars: 1200,
+        memory_group_enabled: false,
+        memory_cleanup_interval_seconds: 3600,
+        audit_archive_after_days: 7,
+        audit_retention_days: 30,
+        audit_cleanup_interval_seconds: 3600,
+        memory_max_pinned_per_scope: 5,
+        memory_pin_overflow_strategy: 'age-out',
+        memory_pin_age_basis: 'updated_at',
+      },
+      codex: {
+        bin: 'codex',
+        default_sandbox: 'workspace-write',
+        output_token_limit: 4000,
+        skip_git_repo_check: true,
+        bridge_instructions: '',
+        run_timeout_ms: 60000,
+      },
+      backend: { default: 'codex' },
+      claude: { bin: 'claude', default_permission_mode: 'auto', output_token_limit: 4000 },
+      storage: { dir: path.join(workspace, 'state') },
+      security: {
+        allowed_project_roots: [workspace],
+        admin_chat_ids: [],
+        require_group_mentions: true,
+      },
+      mcp: {
+        transport: 'stdio' as 'stdio',
+        host: '127.0.0.1',
+        port: 8765,
+        path: '/mcp',
+        sse_path: '/mcp/sse',
+        message_path: '/mcp/message',
+        auth_tokens: [],
+      },
+      feishu: {
+        app_id: 'app-id',
+        app_secret: 'app-secret',
+        dry_run: false,
+        transport: 'webhook',
+        host: '0.0.0.0',
+        port: 3333,
+        event_path: '/webhook/event',
+        card_path: '/webhook/card',
+        verification_token: 'tok',
+        encrypt_key: 'key',
+        allowed_chat_ids: ['c1'],
+        allowed_group_ids: ['g1'],
+      },
+      embedding: {
+        provider: 'ollama' as const,
+        ollama_base_url: 'http://127.0.0.1:11434',
+        ollama_model: 'auto',
+        ollama_timeout_ms: 5000,
+      },
+      projects: {
+        'repo-a': {
+          root: projectRoot,
+          session_scope: 'chat',
+          mention_required: true,
+          knowledge_paths: [],
+          wiki_space_ids: [],
+          admin_chat_ids: [],
+          run_priority: 100,
+          chat_rate_limit_window_seconds: 60,
+          chat_rate_limit_max_runs: 20,
+        },
+      },
+    };
+
+    // Case 1: Ollama reachable, embedding model found
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ models: [{ name: 'qwen3-embedding:8b', model: 'qwen3-embedding:8b', size: 0 }] }), { status: 200 }),
+    );
+
+    let findings = await runDoctor(baseConfig);
+    let messages = findings.map((f) => `[${f.level}] ${f.message}`);
+    expect(messages).toContain('[info] Ollama 嵌入服务可用，模型: qwen3-embedding:8b');
+
+    fetchSpy.mockRestore();
+
+    // Case 2: Ollama reachable, no embedding models (only non-embedding models)
+    const fetchSpy2 = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ models: [{ name: 'llama3:8b', model: 'llama3:8b', size: 0 }] }), { status: 200 }),
+    );
+
+    findings = await runDoctor(baseConfig);
+    messages = findings.map((f) => `[${f.level}] ${f.message}`);
+    expect(messages).toContain('[warn] Ollama 可用但未找到嵌入模型，将回退到本地向量化');
+
+    fetchSpy2.mockRestore();
+
+    // Case 3: Ollama not reachable
+    const fetchSpy3 = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Connection refused'));
+
+    findings = await runDoctor(baseConfig);
+    messages = findings.map((f) => `[${f.level}] ${f.message}`);
+    expect(messages).toContain('[error] Ollama 不可达 (http://127.0.0.1:11434)，嵌入功能降级');
+
+    fetchSpy3.mockRestore();
   });
 
   it('maps remote Feishu diagnostics into doctor findings', () => {

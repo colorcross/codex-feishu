@@ -44,6 +44,14 @@ port = 3333
 allowed_chat_ids = []
 allowed_group_ids = []
 
+# ── 向量嵌入 ──
+# [embedding]
+# provider = "ollama"           # 使用 Ollama 嵌入（推荐团队部署）
+# ollama_model = "auto"         # 自动探测本地最优嵌入模型
+# ollama_base_url = "http://127.0.0.1:11434"
+# ollama_timeout_ms = 30000
+# 默认使用本地轻量级向量化（无需外部服务）
+
 [projects.repo-a]
 root = "/absolute/path/to/repo-a"
 profile = "default"

@@ -205,6 +205,13 @@ const serveCommand = program
     const auditLog = new AuditLog(config.storage.dir);
     const metrics = new MetricsRegistry();
     const embeddingProvider = createEmbeddingProvider(config);
+    if (config.embedding.provider === 'ollama' && config.embedding.ollama_model === 'auto') {
+      logger.info({ provider: 'ollama', model: 'auto' }, 'Embedding provider initialized (auto-detection will happen on first use)');
+    } else if (config.embedding.provider === 'local') {
+      logger.info({ provider: 'local' }, 'Local embedding provider active');
+    } else {
+      logger.info({ provider: config.embedding.provider, model: config.embedding.ollama_model }, 'Embedding provider initialized');
+    }
     const instanceLock = await acquireInstanceLock({
       storageDir: config.storage.dir,
       serviceName: config.service.name,

@@ -6,6 +6,7 @@ import { inspectFeishuEnvironment, type FeishuInspectResult } from '../feishu/di
 import { detectCodexCliCapabilities } from '../codex/capabilities.js';
 import { spawnSync } from 'node:child_process';
 import { getProjectCacheDir, getProjectDownloadsDir, getProjectLogDir, getProjectTempDir } from '../projects/paths.js';
+import { OllamaEmbeddingProvider } from '../memory/ollama-embeddings.js';
 
 export interface DoctorFinding {
   level: 'info' | 'warn' | 'error';
@@ -241,6 +242,39 @@ export async function runDoctor(config: BridgeConfig): Promise<DoctorFinding[]> 
 
   if (Object.keys(config.projects).length === 0) {
     findings.push({ level: 'error', message: 'No projects configured.' });
+  }
+
+  // ── Embedding provider check ──
+  if (config.embedding.provider === 'ollama') {
+    const ollamaProvider = new OllamaEmbeddingProvider({
+      base_url: config.embedding.ollama_base_url,
+      model: config.embedding.ollama_model,
+      timeout_ms: config.embedding.ollama_timeout_ms,
+    });
+    const discovery = await ollamaProvider.discoverModels();
+    if (discovery.resolved_model) {
+      findings.push({
+        level: 'info',
+        message: `Ollama 嵌入服务可用，模型: ${discovery.resolved_model}`,
+      });
+    } else if (discovery.available_models.length > 0) {
+      // Ollama is reachable but no embedding models found
+      findings.push({
+        level: 'warn',
+        message: 'Ollama 可用但未找到嵌入模型，将回退到本地向量化',
+      });
+    } else {
+      // Ollama not reachable or returned no models at all
+      findings.push({
+        level: 'error',
+        message: `Ollama 不可达 (${config.embedding.ollama_base_url})，嵌入功能降级`,
+      });
+    }
+  } else {
+    findings.push({
+      level: 'info',
+      message: '使用本地向量化（无需外部服务）',
+    });
   }
 
   return findings;

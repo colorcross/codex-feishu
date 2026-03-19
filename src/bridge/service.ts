@@ -1162,7 +1162,29 @@ export class FeiqueService {
     const body = detail
       ? await this.buildDetailedStatusText(projectContext.projectAlias, projectContext.sessionKey, conversation, activeRun)
       : await this.buildStatusText(projectContext.projectAlias, conversation, activeRun);
-    await this.sendTextReply(context.chat_id, body, context.message_id, context.text);
+
+    // Append collaboration status section
+    const trustLevelLabels: Record<string, string> = {
+      observe: '🔍 观察', suggest: '💡 建议', execute: '⚡ 执行', autonomous: '🚀 自主',
+    };
+    const trustState = await this.trustStore.getOrCreate(projectContext.projectAlias);
+    const allRuns = await this.runStateStore.listRuns();
+    const activeActorIds = new Set(
+      allRuns
+        .filter((r) => (r.status === 'running' || r.status === 'queued') && r.actor_id)
+        .map((r) => r.actor_id!),
+    );
+    const pendingHandoffs = (await this.handoffStore.listHandoffs()).filter((h) => h.status === 'pending');
+    const pendingReviews = (await this.handoffStore.listReviews()).filter((r) => r.status === 'pending');
+    const collabSection = [
+      '',
+      '协作状态:',
+      `  信任等级: ${trustLevelLabels[trustState.current_level] ?? trustState.current_level}`,
+      `  团队活跃: ${activeActorIds.size} 人在线`,
+      `  待交接: ${pendingHandoffs.length} / 待评审: ${pendingReviews.length}`,
+    ].join('\n');
+
+    await this.sendTextReply(context.chat_id, body + collabSection, context.message_id, context.text);
   }
 
   private async handleNewCommand(context: IncomingMessageContext, selectionKey: string): Promise<void> {
