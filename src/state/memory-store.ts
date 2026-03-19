@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { ensureDir } from '../utils/fs.js';
 import { SerialExecutor } from '../utils/serial-executor.js';
+import { LocalEmbeddingProvider, cosineSimilarity, serializeEmbedding, deserializeEmbedding, type EmbeddingProvider } from '../memory/embeddings.js';
 
 export type MemoryScope = 'project' | 'group';
 
@@ -72,17 +73,19 @@ interface MemoryQueryOptions {
   includeArchived?: boolean;
 }
 
-const MEMORY_SCHEMA_VERSION = 4;
+const MEMORY_SCHEMA_VERSION = 5;
 
 export class MemoryStore {
   private readonly dbPath: string;
   private readonly serial = new SerialExecutor();
+  private readonly embedder: EmbeddingProvider;
   private _db: DatabaseSync | null = null;
   private _schemaReady = false;
   private _lastTs = 0;
 
-  public constructor(stateDir: string) {
+  public constructor(stateDir: string, embedder?: EmbeddingProvider) {
     this.dbPath = path.join(stateDir, 'memory.db');
+    this.embedder = embedder ?? new LocalEmbeddingProvider();
   }
 
   /** Return an ISO timestamp that is strictly greater than any previous call. */
@@ -181,11 +184,14 @@ export class MemoryStore {
         expires_at: input.expires_at,
       };
 
+      const embeddingText = `${record.title} ${record.content} ${record.tags.join(' ')}`;
+      const embeddingJson = serializeEmbedding(this.embedder.embed(embeddingText));
+
       return this.withDb((db) => {
         db.prepare(`
           INSERT INTO project_memories (
-            id, scope, project_alias, chat_id, title, content, tags_json, source, pinned, confidence, created_by, created_at, updated_at, last_accessed_at, expires_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, scope, project_alias, chat_id, title, content, tags_json, source, pinned, confidence, created_by, created_at, updated_at, last_accessed_at, expires_at, embedding_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           record.id,
           record.scope,
@@ -202,6 +208,7 @@ export class MemoryStore {
           record.updated_at,
           record.last_accessed_at ?? null,
           record.expires_at ?? null,
+          embeddingJson,
         );
         return record;
       });
@@ -240,39 +247,96 @@ export class MemoryStore {
   public async searchMemories(selector: MemorySelector, query: string, limit: number, filters?: MemoryFilters): Promise<MemoryRecord[]> {
     await this.serial.wait();
     const touchedAt = this.monotonicNow();
+    const queryEmbedding = this.embedder.embed(query);
+
     return this.withDb((db) => {
-      const ftsQuery = buildAsciiFtsQuery(query);
+      const { whereClause, params } = buildMemorySelectorWhere(selector, filters);
+
+      // Phase 1: FTS5 keyword search (works for both Chinese and English)
+      const ftsQuery = buildFtsQuery(query);
+      let ftsRows: MemoryRow[] = [];
       if (ftsQuery) {
-        const { whereClause, params } = buildMemorySelectorWhere(selector, filters);
-        const rows = db.prepare(`
-          SELECT pm.id, pm.scope, pm.project_alias, pm.chat_id, pm.title, pm.content, pm.tags_json, pm.source, pm.pinned, pm.confidence, pm.created_by, pm.created_at, pm.updated_at, pm.last_accessed_at, pm.expires_at
+        const { whereClause: joinWhere, params: joinParams } = buildMemorySelectorWhere(selector, filters, undefined, 'pm');
+        ftsRows = db.prepare(`
+          SELECT pm.id, pm.scope, pm.project_alias, pm.chat_id, pm.title, pm.content, pm.tags_json, pm.source, pm.pinned, pm.confidence, pm.created_by, pm.created_at, pm.updated_at, pm.last_accessed_at, pm.expires_at, pm.embedding_json
           FROM memory_fts
           JOIN project_memories pm ON pm.rowid = memory_fts.rowid
-          WHERE ${whereClause}
+          WHERE ${joinWhere}
             AND memory_fts MATCH ?
           ORDER BY pm.pinned DESC, bm25(memory_fts), pm.updated_at DESC
           LIMIT ?
-        `).all(...params, ftsQuery, limit) as unknown as MemoryRow[];
-        if (rows.length > 0) {
-          return touchRowsAndMap(db, rows, touchedAt);
+        `).all(...joinParams, ftsQuery, limit * 2) as unknown as MemoryRow[];
+      }
+
+      // Phase 2: Vector similarity search (semantic matching)
+      const allRows = db.prepare(`
+        SELECT id, scope, project_alias, chat_id, title, content, tags_json, source, pinned, confidence, created_by, created_at, updated_at, last_accessed_at, expires_at, embedding_json
+        FROM project_memories
+        WHERE ${whereClause}
+          AND embedding_json IS NOT NULL
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `).all(...params, 200) as unknown as MemoryRow[];
+
+      const vectorScored: Array<{ row: MemoryRow; score: number }> = [];
+      for (const row of allRows) {
+        const embJson = (row as unknown as Record<string, unknown>).embedding_json as string | null;
+        if (!embJson) continue;
+        const embedding = deserializeEmbedding(embJson);
+        if (!embedding) continue;
+        const score = cosineSimilarity(queryEmbedding, embedding);
+        if (score > 0.35) {
+          vectorScored.push({ row, score });
+        }
+      }
+      vectorScored.sort((a, b) => b.score - a.score);
+
+      // Phase 3: Merge and deduplicate
+      const seen = new Set<string>();
+      const merged: MemoryRow[] = [];
+
+      // FTS results first (keyword relevance)
+      for (const row of ftsRows) {
+        if (!seen.has(row.id)) {
+          seen.add(row.id);
+          merged.push(row);
         }
       }
 
-      const normalized = `%${query.trim().toLowerCase()}%`;
-      const { whereClause, params } = buildMemorySelectorWhere(selector, filters);
-      const rows = db.prepare(`
-        SELECT id, scope, project_alias, chat_id, title, content, tags_json, source, pinned, confidence, created_by, created_at, updated_at, last_accessed_at, expires_at
-        FROM project_memories
-        WHERE ${whereClause}
-          AND (
-            lower(title) LIKE ?
-            OR lower(content) LIKE ?
-            OR lower(tags_json) LIKE ?
-          )
-        ORDER BY pinned DESC, updated_at DESC
-        LIMIT ?
-      `).all(...params, normalized, normalized, normalized, limit) as unknown as MemoryRow[];
-      return touchRowsAndMap(db, rows, touchedAt);
+      // Then vector results (semantic relevance)
+      for (const { row } of vectorScored) {
+        if (!seen.has(row.id)) {
+          seen.add(row.id);
+          merged.push(row);
+        }
+      }
+
+      // Fallback: LIKE search if both FTS and vector returned nothing
+      if (merged.length === 0) {
+        const normalized = `%${query.trim().toLowerCase()}%`;
+        const fallbackRows = db.prepare(`
+          SELECT id, scope, project_alias, chat_id, title, content, tags_json, source, pinned, confidence, created_by, created_at, updated_at, last_accessed_at, expires_at, embedding_json
+          FROM project_memories
+          WHERE ${whereClause}
+            AND (
+              lower(title) LIKE ?
+              OR lower(content) LIKE ?
+              OR lower(tags_json) LIKE ?
+            )
+          ORDER BY pinned DESC, updated_at DESC
+          LIMIT ?
+        `).all(...params, normalized, normalized, normalized, limit) as unknown as MemoryRow[];
+        return touchRowsAndMap(db, fallbackRows, touchedAt);
+      }
+
+      // Pinned first, then limit
+      merged.sort((a, b) => (b.pinned ?? 0) - (a.pinned ?? 0));
+      const records = touchRowsAndMap(db, merged.slice(0, limit), touchedAt);
+      // Post-filter on mapped records: ensure expired/archived records don't leak
+      const now = new Date().toISOString();
+      return records.filter(
+        (r) => !r.archived_at && (!r.expires_at || r.expires_at > now),
+      );
     });
   }
 
@@ -621,6 +685,7 @@ interface MemoryRow {
   archived_by?: string | null;
   archive_reason?: string | null;
   expires_at?: string | null;
+  embedding_json?: string | null;
 }
 
 function initializeSchema(db: DatabaseSync): void {
@@ -737,6 +802,9 @@ function migrateProjectMemoriesSchema(db: DatabaseSync): void {
   if (!names.has('archive_reason')) {
     db.exec('ALTER TABLE project_memories ADD COLUMN archive_reason TEXT');
   }
+  if (!names.has('embedding_json')) {
+    db.exec('ALTER TABLE project_memories ADD COLUMN embedding_json TEXT');
+  }
 }
 
 function getUserVersion(db: DatabaseSync): number {
@@ -744,39 +812,40 @@ function getUserVersion(db: DatabaseSync): number {
   return Number(row?.user_version ?? 0);
 }
 
-function buildMemorySelectorWhere(selector: MemorySelector, filters?: MemoryFilters, options?: MemoryQueryOptions): { whereClause: string; params: Array<string | null> } {
+function buildMemorySelectorWhere(selector: MemorySelector, filters?: MemoryFilters, options?: MemoryQueryOptions, tablePrefix?: string): { whereClause: string; params: Array<string | null> } {
+  const p = tablePrefix ? `${tablePrefix}.` : '';
   const params: Array<string | null> = [selector.scope, selector.project_alias];
   const clauses = [
-    'scope = ?',
-    'project_alias = ?',
+    `${p}scope = ?`,
+    `${p}project_alias = ?`,
   ];
 
   if (!options?.includeExpired) {
-    clauses.push('(expires_at IS NULL OR expires_at > ?)');
+    clauses.push(`(${p}expires_at IS NULL OR ${p}expires_at > ?)`);
     params.push(new Date().toISOString());
   }
 
   if (!options?.includeArchived) {
-    clauses.push('archived_at IS NULL');
+    clauses.push(`${p}archived_at IS NULL`);
   }
 
   if (selector.scope === 'group') {
-    clauses.push('chat_id = ?');
+    clauses.push(`${p}chat_id = ?`);
     params.push(selector.chat_id ?? null);
   }
 
   if (filters?.source) {
-    clauses.push('source = ?');
+    clauses.push(`${p}source = ?`);
     params.push(filters.source);
   }
 
   if (filters?.created_by) {
-    clauses.push('created_by = ?');
+    clauses.push(`${p}created_by = ?`);
     params.push(filters.created_by);
   }
 
   if (filters?.tag) {
-    clauses.push('lower(tags_json) LIKE ?');
+    clauses.push(`lower(${p}tags_json) LIKE ?`);
     params.push(`%${filters.tag.toLowerCase()}%`);
   }
 
@@ -786,18 +855,40 @@ function buildMemorySelectorWhere(selector: MemorySelector, filters?: MemoryFilt
   };
 }
 
-function buildAsciiFtsQuery(input: string): string | null {
-  const tokens = input
-    .toLowerCase()
-    .split(/\s+/)
-    .map((token) => token.replace(/[^a-z0-9]+/g, ''))
-    .filter(Boolean);
+/**
+ * Build FTS5 query supporting both English and Chinese text.
+ * English: word prefix matching (e.g., "auth*")
+ * Chinese: character-level matching (FTS5 unicode61 tokenizes CJK per-character)
+ */
+function buildFtsQuery(input: string): string | null {
+  const terms: string[] = [];
 
-  if (tokens.length === 0) {
+  // Extract English/numeric tokens → prefix match
+  const englishTokens = input.toLowerCase().match(/[a-z][a-z0-9_-]*/g);
+  if (englishTokens) {
+    for (const token of englishTokens) {
+      if (token.length > 1) {
+        terms.push(`${token}*`);
+      }
+    }
+  }
+
+  // Extract CJK characters → exact character match
+  // FTS5 with unicode61 tokenizes CJK text per-character, so each character is a token
+  const cjkChars = input.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g);
+  if (cjkChars) {
+    for (const char of cjkChars) {
+      terms.push(char);
+    }
+  }
+
+  if (terms.length === 0) {
     return null;
   }
 
-  return tokens.map((token) => `${token}*`).join(' AND ');
+  // Use OR for mixed queries (find docs matching any term)
+  // then rely on BM25 scoring to rank by relevance
+  return terms.join(' OR ');
 }
 
 function mapThreadSummaryRow(row: ThreadSummaryRow): ThreadSummaryRecord {
