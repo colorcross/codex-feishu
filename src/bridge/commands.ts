@@ -30,6 +30,17 @@ export type BridgeCommand =
   | { kind: 'admin'; resource: 'service'; action: 'status' | 'restart' | 'runs' }
   | { kind: 'admin'; resource: 'config'; action: AdminConfigAction; value?: string }
   | { kind: 'backend'; name?: string }
+  | { kind: 'team' }
+  | { kind: 'learn'; value: string }
+  | { kind: 'recall'; query: string }
+  | { kind: 'handoff'; summary?: string; target?: string }
+  | { kind: 'pickup'; id?: string }
+  | { kind: 'review' }
+  | { kind: 'approve'; comment?: string }
+  | { kind: 'reject'; reason?: string }
+  | { kind: 'insights' }
+  | { kind: 'trust'; action?: 'set'; level?: string }
+  | { kind: 'timeline'; project?: string }
   | { kind: 'prompt'; prompt: string };
 
 export function parseBridgeCommand(input: string): BridgeCommand {
@@ -77,6 +88,28 @@ export function parseBridgeCommand(input: string): BridgeCommand {
       return parseAdminCommand(argument);
     case '/backend':
       return { kind: 'backend', name: argument || undefined };
+    case '/team':
+      return { kind: 'team' };
+    case '/learn':
+      return argument ? { kind: 'learn', value: argument } : { kind: 'prompt', prompt: trimmed };
+    case '/recall':
+      return argument ? { kind: 'recall', query: argument } : { kind: 'prompt', prompt: trimmed };
+    case '/handoff':
+      return { kind: 'handoff', summary: argument || undefined };
+    case '/pickup':
+      return { kind: 'pickup', id: argument || undefined };
+    case '/review':
+      return { kind: 'review' };
+    case '/approve':
+      return { kind: 'approve', comment: argument || undefined };
+    case '/reject':
+      return { kind: 'reject', reason: argument || undefined };
+    case '/insights':
+      return { kind: 'insights' };
+    case '/trust':
+      return parseTrustCommand(argument);
+    case '/timeline':
+      return { kind: 'timeline', project: argument || undefined };
     default:
       return { kind: 'prompt', prompt: trimmed };
   }
@@ -168,6 +201,20 @@ export function buildHelpText(): string {
     '/wiki grant <space_id> <member_type> <member_id> [member|admin] 添加知识空间成员',
     '/wiki revoke <space_id> <member_type> <member_id> [member|admin] 移除知识空间成员',
     '',
+    '团队协作',
+    '/team 查看团队成员当前 AI 协作态势',
+    '/learn <内容> 记录一条团队知识（标题:内容 或直接输入）',
+    '/recall <关键词> 检索团队沉淀的知识',
+    '/handoff [摘要] 将当前会话交接给其他成员',
+    '/pickup [id] 接手一个待交接的任务',
+    '/review 将最近的 AI 输出提交评审',
+    '/approve [评语] 批准当前评审',
+    '/reject [原因] 打回当前评审',
+    '/insights 查看团队 AI 协作效率体检报告',
+    '/trust 查看当前项目的信任等级',
+    '/trust set <observe|suggest|execute|autonomous> 设置信任等级',
+    '/timeline [项目] 查看项目协作时间线',
+    '',
     '管理员',
     '/admin status 查看管理员配置摘要',
     '/admin viewer list 查看全局 viewer chat_id 列表',
@@ -257,6 +304,28 @@ export function describeBridgeCommand(command: BridgeCommand): string {
       return `管理员操作: ${command.resource} ${command.action}${'value' in command && command.value ? ` ${command.value}` : ''}`;
     case 'backend':
       return command.name ? `切换后端到 ${command.name}` : '查看当前后端';
+    case 'team':
+      return '查看团队协作态势';
+    case 'learn':
+      return `记录团队知识: ${truncateForDescription(command.value)}`;
+    case 'recall':
+      return `检索团队知识: ${truncateForDescription(command.query)}`;
+    case 'handoff':
+      return '发起会话交接';
+    case 'pickup':
+      return '接手交接任务';
+    case 'review':
+      return '发起评审';
+    case 'approve':
+      return '批准评审';
+    case 'reject':
+      return '打回评审';
+    case 'insights':
+      return '查看团队效率体检';
+    case 'trust':
+      return command.action === 'set' ? `设置信任等级: ${command.level}` : '查看信任状态';
+    case 'timeline':
+      return command.project ? `查看项目 ${command.project} 时间线` : '查看项目时间线';
     case 'prompt':
       return truncateForDescription(command.prompt);
   }
@@ -286,6 +355,13 @@ export function isReadOnlyCommand(command: BridgeCommand): boolean {
       return command.action === 'list';
     case 'backend':
       return !command.name;
+    case 'team':
+    case 'recall':
+    case 'insights':
+    case 'timeline':
+      return true;
+    case 'trust':
+      return !command.action;
     case 'admin':
       if (command.resource === 'service') {
         return command.action === 'status' || command.action === 'runs';
@@ -355,6 +431,19 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
   }
   if (/^(查看可接管会话|列出可接管会话|可接管会话列表|查看可恢复会话|可恢复会话列表)$/.test(normalized)) {
     return { kind: 'session', action: 'adopt', target: 'list' };
+  }
+
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:团队(?:协作)?态势|团队状态|团队活动|谁在做什么|团队在做什么)$/.test(normalized)) {
+    return { kind: 'team' };
+  }
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:团队体检|效率体检|效率报告|协作体检|瓶颈分析)$/.test(normalized)) {
+    return { kind: 'insights' };
+  }
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:信任(?:等级|状态)|项目信任)$/.test(normalized)) {
+    return { kind: 'trust' };
+  }
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:项目)?时间线$/.test(normalized)) {
+    return { kind: 'timeline' };
   }
 
   const projectWithPromptMatch = normalized.match(
@@ -479,6 +568,15 @@ function stripNaturalLanguagePrefix(input: string): string {
 
 function truncateForDescription(input: string, limit: number = 36): string {
   return input.length > limit ? `${input.slice(0, limit)}...` : input;
+}
+
+function parseTrustCommand(argument: string): BridgeCommand {
+  if (!argument) return { kind: 'trust' };
+  const parts = argument.split(/\s+/).filter(Boolean);
+  if (parts[0] === 'set' && parts[1]) {
+    return { kind: 'trust', action: 'set', level: parts[1] };
+  }
+  return { kind: 'trust' };
 }
 
 function parseAdminCommand(argument: string): BridgeCommand {
