@@ -85,9 +85,9 @@
         <div class="announcement fade-in">
           <span class="announcement-badge">
             <span class="pulse-dot" aria-hidden="true"></span>
-            v0.1.17 released
+            v0.2.0 released
           </span>
-          <span class="announcement-text">Claude Code backend + /backend session-level switching</span>
+          <span class="announcement-text">Team collaboration + web dashboard + cost tracking + hybrid semantic search</span>
           <a href="https://github.com/colorcross/feique/releases" class="announcement-link">View Release →</a>
         </div>
 
@@ -423,6 +423,40 @@ another chat. Queued with 1 task ahead.
               <span class="cap-label">Multi-Backend</span>
               <h3 class="cap-title"><code>/backend codex|claude</code> — session-level backend switching</h3>
               <p class="cap-desc">Switch the active backend for the current project at any time with <code>/backend</code> or natural language ("switch backend to claude"). Priority chain: session override → project <code>backend</code> config → global <code>backend.default</code>. Project routing, session continuity, queuing, and access control apply uniformly to both backends.</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-teal" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <circle cx="6" cy="10" r="3" stroke="currentColor" stroke-width="1.8"/>
+                  <circle cx="14" cy="10" r="3" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M9 10h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Team Collaboration</span>
+              <h3 class="cap-title">Team awareness, knowledge loop, and handoff review</h3>
+              <p class="cap-desc"><code>/team</code> shows who is working on what in real time, <code>/learn</code> captures knowledge, <code>/handoff</code> transfers sessions — closing the loop from information sync to knowledge accumulation.</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M7 13V9M10 13V7M13 13V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Dashboard & Cost</span>
+              <h3 class="cap-title">Web dashboard + cost tracking</h3>
+              <p class="cap-desc"><code>/dashboard</code> provides a global view of run state. Track token usage and cost per project and per user, keeping AI usage transparent and under control.</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-teal" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 3l6 3v4c0 3.6-2.5 5.9-6 7-3.5-1.1-6-3.4-6-7V6l6-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                  <path d="M10 8v4M10 14v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Trust & Insights</span>
+              <h3 class="cap-title">Trust boundaries + efficiency insights</h3>
+              <p class="cap-desc">Progressive trust levels from observe to execute to autonomous. <code>/insights</code> automatically detects bottlenecks and suggests optimizations.</p>
             </div>
           </div>
         </section>

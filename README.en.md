@@ -1,4 +1,4 @@
-# 飞鹊 (Feique)
+# 飞鹊 (Feique) v0.2.0
 
 <div align="center">
 
@@ -34,6 +34,15 @@ Currently supports the full AI coding workflow: project bindings persist by `cha
 | **Project Isolation** | Downloads, temp files, cache, and project audit logs default to `state/projects/<alias>/...`, with per-project overrides available. |
 | **Observability** | Built-in `/healthz`, `/readyz`, and `/metrics`, plus structured audit trails and Prometheus / Alertmanager / Grafana integration. |
 | **Multi-Backend** | A single bridge can manage both Codex and Claude Code backends, configurable globally via `[backend]` or per-project. The Claude backend supports `--model`, `--permission-mode`, `--max-budget-usd`, and other advanced options. |
+| **Team Awareness** | `/team` shows who is using AI on what in real time, with automatic conflict warnings. |
+| **Knowledge Loop** | `/learn` and `/recall` for team knowledge capture and semantic retrieval, with AI-powered auto-extraction. |
+| **Handoff & Review** | `/handoff` `/pickup` `/review` `/approve` `/reject` for session handoffs and code review workflows. |
+| **Team Insights** | `/insights` detects retry patterns, duplicated effort, queue bottlenecks, and error clusters. |
+| **Trust Boundaries** | `/trust` enables progressive trust levels: observe → suggest → execute → autonomous. |
+| **Context Continuity** | `/timeline` shows the project timeline; newcomers automatically receive historical context. |
+| **Team Digest** | `/digest` sends scheduled team AI collaboration daily digests. |
+| **Dashboard** | `GET /dashboard` provides an embedded Web UI for runtime and team status visualization. |
+| **Cost Tracking** | Token usage stats broken down by project and user, with estimated costs. |
 
 ## 🚀 Quick Start
 
@@ -93,10 +102,27 @@ In Feishu, you can interact with Codex directly using natural language or slash 
 /task create Follow up the release checklist
 /base records app_token tbl_id 5
 
+# Team Collaboration
+/team                          # See who's using AI on what
+/learn always run e2e before deploy  # Capture team knowledge
+/recall deploy process         # Semantic search existing knowledge
+/handoff @alice continue fix   # Hand off session to a teammate
+/pickup                        # Pick up a session handed to you
+/review                        # Request a review
+/approve                       # Approve a review
+/reject needs more test cases  # Reject with reason
+/insights                      # View team bottleneck diagnostics
+/trust suggest                 # Set trust level for current project
+/timeline                      # View project timeline
+/digest                        # Manually trigger team digest
+
 # Natural Language Commands
 Switch to project repo-a
 Adopt the latest session
 Show detailed status
+Who on the team is busy right now?
+Hand off my session to Bob
+What's been happening in this project lately?
 ```
 
 ## 🏗️ Architecture Overview
@@ -106,12 +132,15 @@ Show detailed status
                             |
                             v
 [ Project Router ] ---> [ Session Manager ] ---> [ Concurrency Queue ]
-                            |                            |
-                            v                            v
-                    [ Memory / Wiki ]             [ Codex Runner ]
-                                                         |
-                                                         v
-                                                [ Local Workspace ]
+       |                    |                            |
+       v                    v                            v
+[ Team Awareness ]  [ Memory / Wiki ]             [ Backend (Codex / Claude) ]
+[ Trust Boundaries] [ Knowledge Loop ]                   |
+[ Cost Tracking ]   [ Context Continuity ]               v
+       |                    |                     [ Local Workspace ]
+       v                    v
+[ Dashboard ]       [ Handoff & Review ]
+[ Team Digest ]     [ Team Insights ]
 ```
 
 For detailed architecture design, please refer to the [Architecture Document](docs/architecture.md).
@@ -134,6 +163,10 @@ run_timeout_ms = 1800000  # 30 minutes
 
 [storage]
 dir = "~/.feique/state"
+
+[embedding]
+provider = "ollama"
+ollama_model = "auto"  # Auto-detect best local embedding model
 
 [mcp]
 transport = "http"

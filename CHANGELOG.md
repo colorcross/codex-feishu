@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## [0.2.0] — 2026-03-19
+
+### 重大变更
+- 项目从 feishu-bridge 改名为 feique (飞鹊)
+- 定位从「AI 编程控制面」升级为「团队 AI 协作中枢」
+
+### 新功能
+- 六大协作能力: /team, /learn, /recall, /handoff, /review, /insights, /trust, /timeline, /digest
+- Web 仪表板 (GET /dashboard)
+- 成本追踪: token 用量按项目/用户统计
+- 混合语义搜索: 向量嵌入 + FTS5 + 中文支持
+- Ollama 嵌入集成 (qwen3-embedding:8b，支持自动探测)
+- 审批流: 信任边界触发 → 管理员审批 → 放行
+- 多频道通知: per-project notification_chat_ids
+- 全部命令支持自然语言触发
+
+### 改进
+- RunStateStore 迁移到 SQLite (索引查询 + 30天自动清理)
+- 审计日志原子写 (防崩溃数据丢失)
+- MemoryStore 单例连接 (10x 查询提速)
+- Doctor 检查 Ollama 嵌入健康
+- /status 展示协作上下文 (信任等级/团队活跃/待交接)
+- 4 个新 MCP 工具: team.activity, team.insights, project.timeline, project.trust
+
 ## v0.1.17 - 2026-03-19
 
 ### Highlights

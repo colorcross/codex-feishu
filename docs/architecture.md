@@ -149,6 +149,24 @@
 - 出站消息不会真的发送到飞书
 - 适合本地 webhook 回放和 smoke
 
+## 协作层 (Collaboration Layer)
+
+v0.2 新增的团队协作模块位于 `src/collaboration/`，包含 6 个子模块：
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| Team Awareness | `team-awareness.ts` | 团队态势感知，追踪成员当前 AI 协作状态 |
+| Knowledge | `knowledge.ts` | 知识沉淀与检索，支持手动记录和自动提取 |
+| Insights | `insights.ts` | 效率诊断，生成团队 AI 协作健康报告 |
+| Trust Boundary | `trust-boundary.ts` | 信任等级管理（observe → suggest → execute → autonomous） |
+| Daily Digest | `daily-digest.ts` | 每日摘要自动生成与推送 |
+| Cost Tracking | `cost-tracking.ts` | 按项目/用户统计 token 用量和预估成本 |
+
+相关支撑模块：
+
+- `src/memory/embeddings.ts` — 可插拔嵌入提供者（本地轻量 / Ollama / 自定义），为知识检索提供语义向量化
+- `src/observability/dashboard-html.ts` — 嵌入式 Web 仪表板，通过 `metrics_port` 暴露，无需外部前端
+
 ## 会话模型
 
 分两层：

@@ -1,4 +1,4 @@
-# 飞鹊 (Feique)
+# 飞鹊 (Feique) v0.2.0
 
 <div align="center">
 
@@ -34,6 +34,15 @@
 | **项目隔离 (Project Isolation)** | 下载、临时文件、缓存和项目审计默认落到 `state/projects/<alias>/...`，也可按项目单独指定。 |
 | **可观测性 (Observability)** | 内置 `/healthz`、`/readyz`、`/metrics`，支持 Prometheus / Alertmanager / Grafana，并补齐启动告警、运行链路日志和审计。 |
 | **多后端支持 (Multi-Backend)** | 同一桥接器可同时管理 Codex 和 Claude Code 后端，通过 `[backend]` 配置全局默认或按项目覆盖。Claude 后端支持 `--model`、`--permission-mode`、`--max-budget-usd` 等高级选项。 |
+| **团队协作态势 (Team Awareness)** | `/team` 实时查看谁在用 AI 做什么，自动冲突预警。 |
+| **知识回路 (Knowledge Loop)** | `/learn` `/recall` 团队知识沉淀与语义检索，AI 自动提取。 |
+| **接力评审 (Handoff & Review)** | `/handoff` `/pickup` `/review` `/approve` `/reject` 会话交接与评审流程。 |
+| **瓶颈诊断 (Team Insights)** | `/insights` 重试模式 / 重复劳动 / 队列瓶颈 / 错误集群检测。 |
+| **信任边界 (Trust Boundaries)** | `/trust` 渐进式信任：observe → suggest → execute → autonomous。 |
+| **上下文连续性 (Context Continuity)** | `/timeline` 项目时间线，新人自动获得历史上下文。 |
+| **团队日报 (Team Digest)** | `/digest` 定时推送团队 AI 协作日报。 |
+| **Web 仪表板 (Dashboard)** | `GET /dashboard` 嵌入式 Web UI，可视化查看运行态和团队状态。 |
+| **成本追踪 (Cost Tracking)** | token 用量按项目 / 用户统计，预估成本。 |
 
 ## 🚀 快速开始
 
@@ -93,10 +102,27 @@ feique logs --follow
 /task create 跟进发布检查
 /base records app_token tbl_id 5
 
+# 团队协作
+/team                    # 查看谁在用 AI 做什么
+/learn 部署前必须跑完 e2e  # 沉淀团队知识
+/recall 部署流程           # 语义检索已有知识
+/handoff @张三 继续修复    # 将当前会话交接给队友
+/pickup                  # 接手交接给你的会话
+/review                  # 发起评审
+/approve                 # 批准评审
+/reject 需要补测试用例     # 打回评审并注明原因
+/insights                # 查看团队瓶颈诊断
+/trust suggest           # 设置当前项目信任级别
+/timeline                # 查看项目时间线
+/digest                  # 手动触发团队日报
+
 # 自然语言命令
 切换到项目 repo-a
 接管最新会话
 查看详细状态
+团队现在谁在忙？
+帮我把会话交给小王
+这个项目最近都发生了什么？
 ```
 
 ## 🏗️ 架构概览
@@ -106,12 +132,15 @@ feique logs --follow
                             |
                             v
 [ Project Router ] ---> [ Session Manager ] ---> [ Concurrency Queue ]
-                            |                            |
-                            v                            v
-                    [ Memory / Wiki ]             [ Backend (Codex / Claude) ]
-                                                         |
-                                                         v
-                                                [ Local Workspace ]
+       |                    |                            |
+       v                    v                            v
+[ Team Awareness ]  [ Memory / Wiki ]             [ Backend (Codex / Claude) ]
+[ Trust Boundaries] [ Knowledge Loop ]                   |
+[ Cost Tracking ]   [ Context Continuity ]               v
+       |                    |                     [ Local Workspace ]
+       v                    v
+[ Dashboard ]       [ Handoff & Review ]
+[ Team Digest ]     [ Team Insights ]
 ```
 
 详细的架构设计请参考 [架构文档](docs/architecture.md)。
@@ -143,6 +172,10 @@ run_timeout_ms = 1800000  # 30 minutes
 
 [storage]
 dir = "~/.feique/state"
+
+[embedding]
+provider = "ollama"
+ollama_model = "auto"  # 自动探测本地最优嵌入模型
 
 [security]
 allowed_project_roots = ["/srv/repos"]

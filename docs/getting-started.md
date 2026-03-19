@@ -436,6 +436,40 @@ download_dir = "/srv/feique/downloads/repo-a"
 temp_dir = "/srv/feique/tmp/repo-a"
 ```
 
+## 团队协作功能
+
+飞鹊 v0.2 内置团队协作能力，无需额外配置即可使用：
+
+### 团队态势
+在飞书群里发送"谁在用AI"或 `/team`，查看团队成员当前的 AI 协作态势。
+
+### 知识沉淀
+- `记住：部署前必须跑测试` — 手动记录团队知识
+- `有没有关于部署的经验` — 自然语言检索知识
+- AI 完成任务后会自动提取关键发现（root cause、solution 等）
+
+### 效率诊断
+发送"效率怎么样"或 `/insights`，获取团队 AI 协作健康报告。
+
+### 信任边界
+每个项目有信任等级（observe → suggest → execute → autonomous），控制 AI 可以自主执行到什么程度。
+
+### Web 仪表板
+配置 `metrics_port` 后访问 `http://localhost:<port>/dashboard` 查看团队全局。
+
+## 向量嵌入配置（可选）
+
+默认使用本地轻量级向量化。如需更高质量的语义检索：
+
+1. 安装 Ollama: https://ollama.com
+2. 拉取嵌入模型: `ollama pull qwen3-embedding:8b`
+3. 配置:
+```toml
+[embedding]
+provider = "ollama"
+ollama_model = "auto"  # 自动探测本地最优模型
+```
+
 ## 常见联调问题
 
 ### 1. 机器人收不到消息

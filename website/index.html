@@ -85,9 +85,9 @@
         <div class="announcement fade-in">
           <span class="announcement-badge">
             <span class="pulse-dot" aria-hidden="true"></span>
-            v0.1.17 已发布
+            v0.2.0 已发布
           </span>
-          <span class="announcement-text">新增 Claude Code 后端 + /backend 命令会话级切换</span>
+          <span class="announcement-text">六大协作能力 + Web 仪表板 + 成本追踪 + 混合语义搜索</span>
           <a href="https://github.com/colorcross/feique/releases" class="announcement-link">查看 Release →</a>
         </div>
 
@@ -423,6 +423,40 @@
               <span class="cap-label">Multi-Backend</span>
               <h3 class="cap-title"><code>/backend codex|claude</code> 会话级后端切换</h3>
               <p class="cap-desc">通过 <code>/backend</code> 命令或自然语言"后端切换到 claude"随时切换当前项目的后端。优先级链：会话级覆盖 → 项目 <code>backend</code> 配置 → 全局 <code>backend.default</code>。项目路由、会话续接、排队和权限体系对两种后端统一生效。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-teal" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <circle cx="6" cy="10" r="3" stroke="currentColor" stroke-width="1.8"/>
+                  <circle cx="14" cy="10" r="3" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M9 10h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Team Collaboration</span>
+              <h3 class="cap-title">团队协作态势 + 知识回路 + 接力评审</h3>
+              <p class="cap-desc"><code>/team</code> 实时查看谁在做什么，<code>/learn</code> 沉淀知识，<code>/handoff</code> 会话交接——让团队协作从信息同步到知识积累形成闭环。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M7 13V9M10 13V7M13 13V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Dashboard & Cost</span>
+              <h3 class="cap-title">Web 仪表板 + 成本追踪</h3>
+              <p class="cap-desc"><code>/dashboard</code> 查看全局运行态，按项目/用户追踪 token 用量和成本，让 AI 使用透明可控。</p>
+            </div>
+            <div class="cap-card">
+              <div class="cap-icon cap-icon-teal" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 3l6 3v4c0 3.6-2.5 5.9-6 7-3.5-1.1-6-3.4-6-7V6l6-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                  <path d="M10 8v4M10 14v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span class="cap-label">Trust & Insights</span>
+              <h3 class="cap-title">信任边界 + 效率诊断</h3>
+              <p class="cap-desc">渐进式信任 observe → execute → autonomous，<code>/insights</code> 自动检测瓶颈并给出优化建议。</p>
             </div>
           </div>
         </section>
