@@ -8,6 +8,7 @@
 - `FEISHU_ENCRYPT_KEY`
 - `FEISHU_VERIFICATION_TOKEN`
 - Codex/OpenAI 相关认证文件
+- Anthropic API key（Claude Code 后端）
 
 建议：
 
@@ -53,7 +54,7 @@
 至少记录：
 
 - 飞书事件接收失败
-- Codex 子进程启动失败
+- 后端 CLI（Codex / Claude Code）子进程启动失败
 - 会话恢复失败
 - 卡片回调失败
 - 服务实例锁冲突
@@ -71,7 +72,7 @@
 - 生产环境使用专门的系统用户运行桥接器
 - 日志目录与状态目录分离
 - 如果是共享服务，限制项目根目录白名单，不要给任意路径绑定能力
-- 对高风险仓库使用更保守的 Codex profile 和 sandbox
+- 对高风险仓库使用更保守的 Codex profile / Claude permission mode 和 sandbox
 - 不要让多个 bridge 进程共享同一个 `storage.dir`
 - 如果启用 `service.metrics_port`，优先绑定到内网地址并交给 Prometheus 抓取，不要直接暴露公网
 - 如果启用 `examples/docker-compose.observability.yml`，上线前修改 Grafana 默认密码
@@ -93,7 +94,7 @@
 - 项目切换
 - 会话重置
 - 服务启动/停止
-- Codex 开始/完成/失败/取消/恢复
+- 后端 CLI 开始/完成/失败/取消/恢复（含后端类型标记）
 - 卡片动作回调
 - 管理员对白名单、项目配置和配置回滚的变更
 

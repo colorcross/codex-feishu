@@ -131,14 +131,14 @@ codex-feishu bind repo-b /abs/path/to/repo-b
 - 群里切一次，后续这个群会继续用该项目
 - 在群里再次执行 `/project <alias>` 会更新整群的默认项目
 
-如果你希望切项目时自动接上该项目最近的本地 Codex 会话，可打开：
+如果你希望切项目时自动接上该项目最近的本地会话（Codex 或 Claude Code），可打开：
 
 ```toml
 [service]
 project_switch_auto_adopt_latest = true
 ```
 
-如果你想手工指定要续接的原生 Codex 会话，可直接在飞书里用：
+如果你想手工指定要续接的原生会话，可直接在飞书里用：
 
 ```text
 /session adopt list
@@ -146,7 +146,41 @@ project_switch_auto_adopt_latest = true
 /session adopt <thread_id>
 ```
 
-这会去本机 `~/.codex/sessions` 里找当前项目可匹配的 Codex CLI 会话，并把它设成当前 chat 下该项目的 active session。
+这会去本机 `~/.codex/sessions`（Codex）或 `~/.claude/sessions`（Claude Code）里找当前项目可匹配的原生 CLI 会话，并把它设成当前 chat 下该项目的 active session。
+
+## 后端切换
+
+桥接器同时支持 Codex CLI 和 Claude Code 后端。默认后端是 `codex`，可通过配置或飞书命令切换：
+
+```text
+/backend              # 查看当前后端
+/backend codex        # 切换到 Codex
+/backend claude       # 切换到 Claude Code
+```
+
+也支持自然语言：`后端切换到 claude`、`查看当前后端`。
+
+优先级：`/backend` 会话级覆盖 > `project.backend` > `backend.default`
+
+配置方式：
+
+```toml
+[backend]
+default = "codex"     # 全局默认后端，可选 "codex" | "claude"
+
+[claude]
+bin = "claude"
+default_permission_mode = "auto"
+default_model = "sonnet"
+```
+
+也可以在项目级指定后端：
+
+```toml
+[projects.my-project]
+root = "/path/to/project"
+backend = "claude"
+```
 
 ## 权限模型
 
@@ -243,6 +277,7 @@ allowed_group_ids = ["oc_group_1", "oc_group_2"]
 
 常用飞书端运维命令：
 
+- `/backend [codex|claude]`：查看或切换当前会话后端
 - `/status detail`：查看当前项目的详细运行状态、排队耗时和最近失败
 - `/admin runs`：管理员查看所有 active / queued 运行和最近失败
 - `/admin config history`：查看最近 5 次配置快照
@@ -352,7 +387,7 @@ reply_mode = "card"
 - 当前默认体验是直接返回单条最终结果，不再先发一条 `处理中`
 - `card` 模式下最终结果会以更清晰的卡片返回，状态值用中文展示
 - 用户可见回复默认隐藏内部 `运行:` 标识，也不会再附带 `引用 / 项目 / 耗时` 这类工程化头部
-- 飞书里也支持高置信度自然语言命令，例如 `查看状态`、`切换到项目 repo-a`、`接管最新会话`
+- 飞书里也支持高置信度自然语言命令，例如 `查看状态`、`切换到项目 repo-a`、`接管最新会话`、`后端切换到 claude`、`查看当前后端`
 - 自然语言命令和斜杠命令会直接执行，不再额外要求回复 `确认`
 
 ## 管理员入口
@@ -412,12 +447,20 @@ codex-feishu feishu inspect
 codex-feishu doctor --remote
 ```
 
-### 2. Codex 启动前需要先开代理
+### 2. 后端 CLI 启动前需要先开代理
 
-在配置里加入：
+在配置里加入（Codex 后端）：
 
 ```toml
 [codex]
+shell = "/bin/zsh"
+pre_exec = "proxy_on"
+```
+
+Claude Code 后端同理：
+
+```toml
+[claude]
 shell = "/bin/zsh"
 pre_exec = "proxy_on"
 ```

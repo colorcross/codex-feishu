@@ -7,6 +7,10 @@
 - 想把项目拉起来直接用的人
 - 想把桥接器部署成正式团队服务的人
 
+## 概览
+
+桥接器支持 **Codex CLI** 和 **Claude Code** 双后端，通过 `[backend]` 配置段或飞书 `/backend codex|claude` 命令做会话级切换。
+
 ## 建议阅读顺序
 
 1. [快速开始](getting-started.md)
@@ -32,7 +36,8 @@
   - `reply_mode` / 富文本 / 卡片
   - 自然语言命令触发与直接执行
   - 管理员动态接入与 `/admin` 命令
-  - `/session adopt` 续接本地 Codex 会话
+  - `/session adopt` 续接本地 Codex / Claude Code 会话
+  - `/backend codex|claude` 会话级后端切换
   - `queued` / 仓库占用提示
   - 同一条消息回写状态
   - MCP 接入：切项目、接管会话、自然语言控制命令
@@ -41,7 +46,7 @@
 
 - [架构设计](architecture.md)
   - 飞书接入层
-  - Bridge Service
+  - Bridge Service（多后端抽象）
   - 会话模型
   - 运行态保护
   - Observability

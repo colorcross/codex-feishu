@@ -105,7 +105,7 @@
               <span class="title-line title-accent">control plane.</span>
             </h1>
             <p class="hero-desc">
-              Codex Feishu sends Feishu messages into resumable Codex CLI or Claude Code sessions. The backend is switchable in config. Project binding sticks by <code>chat_id</code>, local sessions can be adopted, shared repos are serialized safely, queued runtime state stays visible inside Feishu, and final replies now land as cleaner single-result rich text or cards, paired with direct natural-language commands and MCP access for external tools.
+              Codex Feishu sends Feishu messages into resumable Codex CLI or Claude Code sessions. The active backend can be switched at any time via <code>/backend</code>, or set as defaults in project or global config. Project binding sticks by <code>chat_id</code>, local sessions can be adopted, shared repos are serialized safely, queued runtime state stays visible inside Feishu, and final replies now land as cleaner single-result rich text or cards, paired with direct natural-language commands and MCP access for external tools.
             </p>
             <div class="hero-actions">
               <a class="btn btn-primary" href="https://www.npmjs.com/package/codex-feishu">
@@ -242,7 +242,7 @@ another chat. Queued with 1 task ahead.
             <div class="flow-card">
               <div class="flow-num">04</div>
               <h3 class="flow-title">The backend runs inside explicit boundaries</h3>
-              <p class="flow-desc">Whether using Codex CLI or Claude Code, project root, sandbox, shell, pre-exec, timeout, and runtime policy remain visible and configurable.</p>
+              <p class="flow-desc">Whether using Codex CLI or Claude Code, project root, sandbox, shell, pre-exec, timeout, and runtime policy remain visible and configurable. The backend is resolved via the priority chain: <strong>session override → project config → global default</strong>.</p>
               <div class="flow-tag">Backend Runner</div>
             </div>
             <div class="flow-arrow" aria-hidden="true">→</div>
@@ -424,8 +424,8 @@ another chat. Queued with 1 task ahead.
                 </svg>
               </div>
               <span class="cap-label">Multi-Backend</span>
-              <h3 class="cap-title">Multi-backend: Codex CLI and Claude Code</h3>
-              <p class="cap-desc">Choose <code>codex</code> or <code>claude</code> as the backend in config. Project routing, session continuity, queuing, and access control apply uniformly to both backends.</p>
+              <h3 class="cap-title"><code>/backend codex|claude</code> — session-level backend switching</h3>
+              <p class="cap-desc">Switch the active backend for the current project at any time with <code>/backend</code> or natural language ("switch backend to claude"). Priority chain: session override → project <code>backend</code> config → global <code>backend.default</code>. Project routing, session continuity, queuing, and access control apply uniformly to both backends.</p>
             </div>
           </div>
         </section>
@@ -470,8 +470,13 @@ codex-feishu mcp</code></pre>
 /session adopt latest
 /session list
 
+<span class="c-muted"># Backend switching</span>
+/backend
+/backend claude
+
 <span class="c-muted"># Natural language commands</span>
 Switch to project repo-a
+Switch backend to claude
 Adopt latest session
 Show detailed status</code></pre>
             </div>

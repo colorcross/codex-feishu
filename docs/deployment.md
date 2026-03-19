@@ -9,10 +9,14 @@
 3. `transport = "long-connection"`
 4. `codex-feishu serve`
 
-如需在每次拉起 Codex 前先开代理，可在配置中加入：
+如需在每次拉起后端 CLI 前先开代理，可在配置中加入：
 
 ```toml
 [codex]
+shell = "/bin/zsh"
+pre_exec = "proxy_on"
+
+[claude]
 shell = "/bin/zsh"
 pre_exec = "proxy_on"
 ```
@@ -51,7 +55,7 @@ codex-feishu start
 优点：
 
 - 不需要公网
-- 飞书消息直接进入本机 Codex
+- 飞书消息直接进入本机 Codex 或 Claude Code
 
 限制：
 
@@ -84,7 +88,7 @@ npm run demo:down
 - 把项目根目录映射为只允许访问的工作区
 - 配置 `security.allowed_project_roots`
 - 如果你希望回复更接近飞书插件式工作台体验，默认把 `reply_mode = "card"` 作为共享服务起点；只有在你明确想保留更轻量的富文本消息时再退回 `reply_mode = "post"`
-- 对不同项目使用不同的 Codex profile
+- 对不同项目使用不同的后端或 Codex profile（通过 `projects.<alias>.backend` 指定）
 - 保持单实例运行；如果做主备切换，先释放旧实例锁再拉起新实例
 - 在共享部署中显式配置 `service.metrics_port`，接入 Prometheus 或探针系统
 - 对外暴露 MCP HTTP/SSE 时，始终配置 MCP token；推荐使用 `mcp.auth_tokens` 做平滑轮换

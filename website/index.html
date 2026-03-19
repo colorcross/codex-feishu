@@ -105,7 +105,7 @@
               <span class="title-line title-accent">的控制面。</span>
             </h1>
             <p class="hero-desc">
-              Codex Feishu 让飞书消息直接进入可续接的 Codex CLI 或 Claude Code 会话。后端可在配置中切换，项目绑定按 <code>chat_id</code> 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见；最终回复支持富文本和卡片，并默认收口成更干净的单条结果消息，再配合自然语言命令和 MCP 接口完成真实协作。
+              Codex Feishu 让飞书消息直接进入可续接的 Codex CLI 或 Claude Code 会话。后端可通过 <code>/backend</code> 命令随时切换，也可在项目或全局配置中设定默认值；项目绑定按 <code>chat_id</code> 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见；最终回复支持富文本和卡片，并默认收口成更干净的单条结果消息，再配合自然语言命令和 MCP 接口完成真实协作。
             </p>
             <div class="hero-actions">
               <a class="btn btn-primary" href="https://www.npmjs.com/package/codex-feishu">
@@ -242,7 +242,7 @@
             <div class="flow-card">
               <div class="flow-num">04</div>
               <h3 class="flow-title">后端在明确边界内运行</h3>
-              <p class="flow-desc">无论使用 Codex CLI 还是 Claude Code，项目根目录、sandbox、shell、pre-exec 和超时策略都在桥接层内显式管理。</p>
+              <p class="flow-desc">无论使用 Codex CLI 还是 Claude Code，项目根目录、sandbox、shell、pre-exec 和超时策略都在桥接层内显式管理。后端按 <strong>会话级覆盖 → 项目配置 → 全局默认</strong> 优先级链决定。</p>
               <div class="flow-tag">Backend Runner</div>
             </div>
             <div class="flow-arrow" aria-hidden="true">→</div>
@@ -424,8 +424,8 @@
                 </svg>
               </div>
               <span class="cap-label">Multi-Backend</span>
-              <h3 class="cap-title">多后端支持：Codex CLI 与 Claude Code</h3>
-              <p class="cap-desc">在配置中选择 <code>codex</code> 或 <code>claude</code> 后端，项目路由、会话续接、排队和权限体系对两种后端统一生效。</p>
+              <h3 class="cap-title"><code>/backend codex|claude</code> 会话级后端切换</h3>
+              <p class="cap-desc">通过 <code>/backend</code> 命令或自然语言"后端切换到 claude"随时切换当前项目的后端。优先级链：会话级覆盖 → 项目 <code>backend</code> 配置 → 全局 <code>backend.default</code>。项目路由、会话续接、排队和权限体系对两种后端统一生效。</p>
             </div>
           </div>
         </section>
@@ -470,8 +470,13 @@ codex-feishu mcp</code></pre>
 /session adopt latest
 /session list
 
+<span class="c-muted"># 后端切换</span>
+/backend
+/backend claude
+
 <span class="c-muted"># 自然语言命令</span>
 切换到项目 repo-a
+后端切换到 claude
 接管最新会话
 查看详细状态</code></pre>
             </div>
@@ -518,6 +523,9 @@ codex-feishu mcp</code></pre>
 [service]
 default_project = <span class="c-amber">"default"</span>
 reply_mode = <span class="c-amber">"card"</span>  <span class="c-muted"># text | post | card</span>
+
+[backend]
+default = <span class="c-amber">"codex"</span>  <span class="c-muted"># codex | claude</span>
 
 [codex]
 bin = <span class="c-amber">"codex"</span>

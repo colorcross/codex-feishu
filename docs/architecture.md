@@ -15,9 +15,11 @@
 - 解析飞书文本命令
 - 选择项目 alias
 - 读取/更新会话状态
-- 将 prompt 转成适合 Codex 的桥接 prompt
-- 调用 Codex Runner
+- 根据当前后端（Codex 或 Claude Code）构造桥接 prompt
+- 调用对应的 Backend Runner
 - 把结果回发到飞书
+
+后端选择优先级：`/backend` 会话级覆盖 > `project.backend` > `backend.default`（默认 `codex`）。
 
 ### Session Store
 
@@ -92,7 +94,11 @@
 
 当 `service.metrics_port` 配置后，会启动独立管理端口暴露 `/metrics`。
 
-### Codex Runner
+### Backend Runner
+
+桥接器通过 Backend 抽象层统一管理两种 CLI 后端：
+
+#### Codex Runner
 
 通过 CLI 调用：
 
@@ -112,7 +118,20 @@
 - JSONL 事件流，用于进度更新
 - `--output-last-message` 文件，用于稳定拿最终答复
 
-Runner 还支持：
+#### Claude Runner
+
+通过 Claude Code CLI 调用：
+
+- 新会话：`claude -p --output-format stream-json ...`
+- 续会话：`claude -p --resume <session_id> --output-format stream-json ...`
+
+启动前探测：`claude --version`
+
+会话存储在 `~/.claude/sessions/`，adopt 逻辑与 Codex 类似。
+
+#### 共享能力
+
+两种 Runner 都支持：
 
 - `run_timeout_ms`
 - `/cancel` 触发的 abort
@@ -139,7 +158,7 @@ Runner 还支持：
 - 默认按 `chat_id` 维度保存，让同一个群共享项目绑定
 
 2. `session key`
-- 保存某个项目下对应的 Codex thread
+- 保存某个项目下对应的 Codex thread 或 Claude session
 - 支持 `chat` 或 `chat-user` 两种 `session_scope`
 
 3. `queue key`
@@ -149,7 +168,7 @@ Runner 还支持：
 
 4. `project root lock`
 - 按 `project.root` 全局串行
-- 即使不同群、不同私聊、不同 alias 指向同一仓库，也不会并发执行 Codex run
+- 即使不同群、不同私聊、不同 alias 指向同一仓库，也不会并发执行 Codex / Claude run
 - 如果命中锁，桥接器会先写入一个 `queued` 运行态，并向飞书提示当前是“项目内排队”还是“仓库正在被其他会话操作”
 
 ## 选择长连接 + Webhook 双模式的原因

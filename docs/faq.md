@@ -1,6 +1,6 @@
 # FAQ
 
-## 1. 这个项目支持多个 Codex session 同时存在吗？
+## 1. 这个项目支持多个 session 同时存在吗？
 
 支持。
 
@@ -26,7 +26,7 @@
 说明：
 
 - `/session use` 只切换桥接器已经保存过的会话
-- `/session adopt` 会去本机 `~/.codex/sessions` 里找当前项目可匹配的原生 Codex CLI 会话，再把它接管为当前项目的 active session
+- `/session adopt` 会去本机 `~/.codex/sessions`（Codex）或 `~/.claude/sessions`（Claude Code）里找当前项目可匹配的原生 CLI 会话，再把它接管为当前项目的 active session
 
 ## 3. 飞书消息怎么判断当前是哪个项目？
 
@@ -39,7 +39,7 @@
 
 如果当前聊天还没切过项目，就回退到 `service.default_project`。
 
-如果你希望 `/project <alias>` 后自动尝试续上该项目最近的本地 Codex 会话，可启用：
+如果你希望 `/project <alias>` 后自动尝试续上该项目最近的本地会话（Codex 或 Claude Code，取决于当前后端），可启用：
 
 ```toml
 [service]
@@ -49,7 +49,7 @@ project_switch_auto_adopt_latest = true
 启用后：
 
 - 如果当前聊天里这个项目已经有 active session，优先保留当前聊天自己的会话
-- 如果当前聊天里还没有，会尝试从本机 `~/.codex/sessions` 里接管该项目最近的本地会话
+- 如果当前聊天里还没有，会尝试从本机 `~/.codex/sessions` 或 `~/.claude/sessions` 里接管该项目最近的本地会话
 
 ## 4. 群聊为什么默认必须 `@机器人`？
 
@@ -218,12 +218,34 @@ npm run demo:down
 - 确保没把真实密钥、状态文件、打包产物提交进去
 - 把 `App Secret` 视为敏感信息，必要时立即轮换
 
-## 14. 这里的项目 / session 和 Codex App 里的项目 / 线程是同一个东西吗？
+## 14. 怎么在 Codex 和 Claude Code 之间切换？
+
+在飞书里用：
+
+```text
+/backend              # 查看当前后端
+/backend codex        # 切换到 Codex
+/backend claude       # 切换到 Claude Code
+```
+
+也支持自然语言：`后端切换到 claude`、`查看当前后端`。
+
+切换只影响当前会话，不影响全局配置。优先级链：`/backend` 会话级覆盖 > `project.backend` > `backend.default`。
+
+如果你想把某个项目固定到特定后端：
+
+```toml
+[projects.repo-a]
+root = "/srv/repos/repo-a"
+backend = "claude"
+```
+
+## 15. 这里的项目 / session 和 Codex App 里的项目 / 线程是同一个东西吗？
 
 不建议把它们当成同一个抽象。
 
 - 这个项目里的“项目”是桥接器配置里的 `projects.<alias>.root`
-- 这个项目里的“session”是本地桥接层维护的 Codex CLI 会话句柄和历史映射
+- 这个项目里的”session”是本地桥接层维护的 Codex CLI / Claude Code 会话句柄和历史映射
 - Codex App / Codex Cloud 里还存在单独的“过去的项目”和“cloud threads”概念
 
 根据 OpenAI 官方文档：
@@ -245,11 +267,11 @@ npm run demo:down
 - Codex CLI reference：<https://developers.openai.com/codex/cli/reference/>
 - Codex config reference：<https://developers.openai.com/codex/config-reference/#configtoml>
 
-## 15. 现在支持在飞书里处理图片、文件、音频和项目文档吗？
+## 16. 现在支持在飞书里处理图片、文件、音频和项目文档吗？
 
 支持第一版：
 
-- 图片、文件、音频、富文本消息会被解析成结构化元数据，并带进 Codex 提示词
+- 图片、文件、音频、富文本消息会被解析成结构化元数据，并带进后端提示词
 - 如果开启 `download_message_resources = true`，文本类附件会额外抽取内容摘要带进上下文
 - `doc/docx/odt/rtf` 这类文档附件也会尝试抽取正文摘要
 - 如果同时开启 `transcribe_audio_messages = true`，音频附件会尝试走转写脚本生成 transcript
@@ -260,10 +282,10 @@ npm run demo:down
 
 边界也要明确：
 
-- 当前仍然不是“把任意二进制原样上传给 Codex”；增强的是元数据、文本摘要和音频转写
+- 当前仍然不是”把任意二进制原样上传给后端 CLI”；增强的是元数据、文本摘要和音频转写
 - 如果你要更深入的文档 / 知识库管理，下一步应该接飞书文档、知识库或外部检索后端，而不是继续堆 prompt
 
-## 16. 飞书知识库为什么搜不到结果？
+## 17. 飞书知识库为什么搜不到结果？
 
 优先检查这几项：
 
@@ -280,7 +302,7 @@ npm run demo:down
 
 如果这里就是空的，问题基本不在桥接器，而在飞书空间权限。
 
-## 17. 能直接在飞书里创建知识库文档吗？
+## 18. 能直接在飞书里创建知识库文档吗？
 
 现在可以做第一版：
 
@@ -328,7 +350,7 @@ npm run demo:down
 - `member_type` 需要和你提供的成员 ID 对应，常见值是 `open_id` 或 `user_id`
 - 写操作要求机器人或当前身份是该知识空间管理员
 
-## 15. 记忆会一直保留吗？怎么治理？
+## 19. 记忆会一直保留吗？怎么治理？
 
 默认不会无限失控，但也不是自动全知。现在有三层治理手段：
 
