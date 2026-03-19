@@ -1688,8 +1688,29 @@ export class FeiqueService {
     const projectContext = await this.resolveProjectContext(context, selectionKey);
 
     if (action === 'set' && level) {
-      const validLevels = ['observe', 'suggest', 'execute', 'autonomous'];
-      if (!validLevels.includes(level)) {
+      const TRUST_ORDER: TrustLevel[] = ['observe', 'suggest', 'execute', 'autonomous'];
+      const validLevels = [...TRUST_ORDER];
+      const state = await this.trustStore.getOrCreate(projectContext.projectAlias);
+
+      // Handle relative promote/demote from natural language
+      let resolvedLevel = level;
+      if (level === '_promote') {
+        const idx = TRUST_ORDER.indexOf(state.current_level);
+        if (idx >= TRUST_ORDER.length - 1) {
+          await this.sendTextReply(context.chat_id, `已经是最高信任等级 (${state.current_level})，无法继续提升。`, context.message_id, context.text);
+          return;
+        }
+        resolvedLevel = TRUST_ORDER[idx + 1]!;
+      } else if (level === '_demote') {
+        const idx = TRUST_ORDER.indexOf(state.current_level);
+        if (idx <= 0) {
+          await this.sendTextReply(context.chat_id, `已经是最低信任等级 (${state.current_level})，无法继续降低。`, context.message_id, context.text);
+          return;
+        }
+        resolvedLevel = TRUST_ORDER[idx - 1]!;
+      }
+
+      if (!validLevels.includes(resolvedLevel as TrustLevel)) {
         await this.sendTextReply(
           context.chat_id,
           `无效的信任等级。有效值: ${validLevels.join(', ')}`,
@@ -1699,8 +1720,7 @@ export class FeiqueService {
         return;
       }
 
-      const state = await this.trustStore.getOrCreate(projectContext.projectAlias);
-      state.current_level = level as TrustLevel;
+      state.current_level = resolvedLevel as TrustLevel;
       state.last_evaluated_at = new Date().toISOString();
       await this.trustStore.update(projectContext.projectAlias, state);
 

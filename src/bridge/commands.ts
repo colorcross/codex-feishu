@@ -255,10 +255,14 @@ export function buildHelpText(): string {
     '/admin config rollback <id|latest> 回滚到最近配置快照',
     '/admin service restart 保存配置并重启服务',
     '',
-    '也支持高置信度自然语言触发，例如：',
-    '查看状态 / 帮我看下当前状态 / 当前项目是哪个 / 项目列表 / 新会话 / 取消当前任务 / 切换到项目 repo-a / 帮我把项目切到 repo-a 然后查看状态 / 接管最新会话 / 重启服务',
+    '所有命令均支持自然语言触发，例如：',
+    '基础: 查看状态 / 项目列表 / 新会话 / 取消当前任务 / 切换到项目 repo-a',
+    '协作: 谁在用AI / 大家在忙什么 / 效率怎么样 / 哪里有瓶颈',
+    '知识: 记住：XXX / 有没有关于XXX的经验 / 查一下知识 XXX',
+    '交接: 交接一下 / 我来接手 / 评审一下 / 通过 / 打回',
+    '管理: 信任等级 / 提升信任 / 时间线 / 日报 / 团队总结',
     '',
-    '直接发送文本会进入当前项目的 Codex 会话。',
+    '直接发送文本会进入当前项目的 AI 会话。',
   ].join('\n');
 }
 
@@ -440,17 +444,96 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
     return { kind: 'session', action: 'adopt', target: 'list' };
   }
 
-  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:团队(?:协作)?态势|团队状态|团队活动|谁在做什么|团队在做什么)$/.test(normalized)) {
+  // ── /team: 团队态势感知 ──
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:团队(?:协作)?态势|团队状态|团队活动|谁在做什么|团队在做什么|谁在用\s*AI|大家在忙什么|团队成员(?:在做什么|状态)|现在谁在(?:干活|工作|用AI)|看看团队)$/.test(normalized)) {
     return { kind: 'team' };
   }
-  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:团队体检|效率体检|效率报告|协作体检|瓶颈分析)$/.test(normalized)) {
+
+  // ── /learn: 知识记录 ──
+  const learnMatch = normalized.match(/^(?:记住|记录(?:一下)?|保存(?:知识|经验|一下)?|团队知识|知识记录)[：:\s]+(.+)$/);
+  if (learnMatch?.[1]) {
+    return { kind: 'learn', value: learnMatch[1].trim() };
+  }
+
+  // ── /recall: 知识检索 ──
+  // "有没有关于X的知识/经验"
+  const recallHasMatch = normalized.match(/^有没有(?:关于|涉及)(.+?)的?(?:知识|经验|记录)$/);
+  if (recallHasMatch?.[1]) {
+    return { kind: 'recall', query: recallHasMatch[1].trim() };
+  }
+  // "关于X有什么知识/经验"
+  const recallAboutMatch = normalized.match(/^关于(.+?)(?:有什么|有没有)(?:知识|经验|记录)$/);
+  if (recallAboutMatch?.[1]) {
+    return { kind: 'recall', query: recallAboutMatch[1].trim() };
+  }
+  // "搜搜/查查/找找 X" or "查一下知识 X" or "检索 X"
+  const recallSearchMatch = normalized.match(/^(?:搜搜|查查|查一下|找找|搜索|检索|回忆)(?:看)?(?:知识|经验|团队知识|以前的经验)?[：:\s]+(.+)$/);
+  if (recallSearchMatch?.[1]) {
+    return { kind: 'recall', query: recallSearchMatch[1].trim() };
+  }
+
+  // ── /handoff: 会话交接 ──
+  const handoffMatch = normalized.match(/^(?:交接(?:一下|出去)?|转交(?:一下)?|交给(?:别人|其他人|下一个人)|(?:这个)?任务交出去|我做不完了|谁来接(?:手|一下)?|把(?:这个|当前)(?:任务|会话)交(?:出去|接))(?:[，,：:\s]+(.+))?$/);
+  if (handoffMatch) {
+    return { kind: 'handoff', summary: handoffMatch[1]?.trim() || undefined };
+  }
+
+  // ── /pickup: 接手任务 ──
+  if (/^(?:我来(?:接手?|处理|做|搞)|我接(?:手|了)?|让我来|我来吧|接手(?:任务)?|我来接(?:这个)?(?:任务|活)?)$/.test(normalized)) {
+    return { kind: 'pickup' };
+  }
+
+  // ── /review: 评审 ──
+  if (/^(?:评审(?:一下)?|提交评审|看看(?:这个)?结果|帮(?:忙)?(?:看看|审查|评审)(?:结果)?|review(?:一下)?|审查(?:一下)?)$/i.test(normalized)) {
+    return { kind: 'review' };
+  }
+
+  // ── /approve: 批准（短句高置信度匹配）──
+  const approveMatch = normalized.match(/^(?:通过|批准|同意|没问题|可以|LGTM|approved?|OK|没啥问题|挺好的?|就这样吧|可以的)(?:[，,：:\s]+(.+))?$/i);
+  if (approveMatch) {
+    return { kind: 'approve', comment: approveMatch[1]?.trim() || undefined };
+  }
+
+  // ── /reject: 打回 ──
+  const rejectMatch = normalized.match(/^(?:不行|打回|驳回|退回|有问题|不通过|需要修改|reject(?:ed)?|不可以|不同意)(?:[，,：:\s]+(.+))?$/i);
+  if (rejectMatch) {
+    return { kind: 'reject', reason: rejectMatch[1]?.trim() || undefined };
+  }
+
+  // ── /insights: 效率体检 ──
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:团队体检|效率体检|效率报告|协作体检|瓶颈分析|哪里有瓶颈|效率怎么样|有什么(?:问题|瓶颈)|团队健康|(?:AI)?(?:使用|协作)(?:效率|情况|分析)|有没有(?:问题|瓶颈|异常))$/.test(normalized)) {
     return { kind: 'insights' };
   }
-  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:信任(?:等级|状态)|项目信任)$/.test(normalized)) {
+
+  // ── /trust: 信任管理 ──
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:信任(?:等级|状态|级别)|项目信任|当前信任)$/.test(normalized)) {
     return { kind: 'trust' };
   }
-  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:项目)?时间线$/.test(normalized)) {
+  const trustSetMatch = normalized.match(/^(?:设置|修改|调整)信任(?:等级|级别)?(?:为|到)\s*(observe|suggest|execute|autonomous|观察|建议|执行|自主)$/i);
+  if (trustSetMatch) {
+    const levelMap: Record<string, string> = { '观察': 'observe', '建议': 'suggest', '执行': 'execute', '自主': 'autonomous' };
+    const raw = trustSetMatch[1]!.toLowerCase();
+    return { kind: 'trust', action: 'set', level: levelMap[raw] ?? raw };
+  }
+  if (/^提升信任(?:等级)?$/.test(normalized)) {
+    return { kind: 'trust', action: 'set', level: '_promote' };
+  }
+  if (/^降低信任(?:等级)?$/.test(normalized)) {
+    return { kind: 'trust', action: 'set', level: '_demote' };
+  }
+
+  // ── /timeline: 项目时间线 ──
+  if (/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(?:(?:项目)?时间线|最近(?:发生了什么|有什么动态|动态)|项目(?:动态|历史|活动|进展)|发生了什么事?)$/.test(normalized)) {
     return { kind: 'timeline' };
+  }
+  const timelineProjectMatch = normalized.match(/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(\S+?)(?:的|项目的?)(?:时间线|动态|历史|活动|进展)$/);
+  if (timelineProjectMatch) {
+    return { kind: 'timeline', project: timelineProjectMatch[1] };
+  }
+
+  // ── /digest: 团队日报 ──
+  if (/^(?:(?:查看|看|查|生成|出个|出一下|来个|出)(?:一下|下)?)?(?:(?:团队)?(?:AI)?(?:协作)?日报|今天(?:的)?(?:报告|总结|摘要)|团队(?:总结|报告|摘要)|每日摘要|daily\s*digest)$/i.test(normalized)) {
+    return { kind: 'digest' };
   }
 
   const projectWithPromptMatch = normalized.match(
