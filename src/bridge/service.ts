@@ -2675,7 +2675,7 @@ export class FeiqueService {
     memoryContext: MemoryContext,
   ): Promise<string> {
     const prefixParts = [
-      'You are replying through Feique, a team AI coding orchestration hub connected to Codex CLI.',
+      'You are replying through Feique, a team AI collaboration hub connected via Feishu.',
       'Keep the final response concise and action-oriented.',
       'When files change, summarize key paths and verification.',
       'Do not expose session IDs, run IDs, chat IDs, conversation keys, secrets, raw logs, or absolute local filesystem paths to Feishu users unless they explicitly ask for them.',

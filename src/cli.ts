@@ -51,7 +51,7 @@ interface RuntimeCliConfig {
 
 program
   .name('feique')
-  .description('飞鹊 (Feique) — Team AI Coding Orchestration Hub for Feishu.')
+  .description('飞鹊 (Feique) — Team AI Collaboration Hub for Feishu.')
   .version(packageJson.version);
 
 program

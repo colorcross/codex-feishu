@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**团队 AI 编程协作中枢 — 让团队 AI 编程有序、可控、可观测。**
+**团队 AI 协作中枢 — 从个人提效到团队协作，让 AI 融入工作的每个环节。**
 
 [![npm version](https://img.shields.io/npm/v/feique.svg?style=flat-square&color=5bb8b0)](https://www.npmjs.com/package/feique)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square&color=d4845a)](LICENSE)
@@ -15,9 +15,9 @@
 
 ---
 
-飞鹊 (Feique) 是**团队 AI 编程协作中枢**。它把飞书消息路由到 Codex CLI 或 Claude Code 会话，围绕**团队协作、运营管控和可观测性**三个维度提供完整能力：项目绑定、会话接管、并发保护、多后端切换、权限分层、审计日志和 Prometheus 指标。
+飞鹊 (Feique) 是**团队 AI 协作中枢**。它通过飞书连接 Codex CLI、Claude Code 等 AI 能力，让团队成员协作配合、相互促进——帮助发现问题和瓶颈、提升效率，推动从个人能力的提升，到团队协作的顺畅，再到整体能力的持续迭代。
 
-团队成员通过飞书群自然协作，管理者通过仪表板和指标掌握全局。项目绑定按 `chat_id` 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见；最终回复支持富文本和卡片，并默认收口成更干净的单条结果消息。
+当前已支持 AI 编程场景的完整链路：项目绑定按 `chat_id` 持久化，本地会话可接管，同仓库自动串行，排队和运行态在飞书里直接可见；最终回复支持富文本和卡片，并默认收口成更干净的单条结果消息。
 
 ## 🌟 核心特性
 

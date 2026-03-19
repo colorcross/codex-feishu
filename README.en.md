@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Team AI Coding Orchestration Hub — orderly, controlled, observable.**
+**Team AI Collaboration Hub — from individual productivity to team synergy, weave AI into every stage of work.**
 
 [![npm version](https://img.shields.io/npm/v/feique.svg?style=flat-square&color=5bb8b0)](https://www.npmjs.com/package/feique)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square&color=d4845a)](LICENSE)
@@ -15,9 +15,9 @@
 
 ---
 
-Feique is a **Team AI Coding Orchestration Hub**. It routes Feishu messages into Codex CLI or Claude Code sessions, built around three pillars: **team collaboration, operational control, and observability** — with project binding, session adoption, concurrency protection, multi-backend switching, access control, audit logs, and Prometheus metrics.
+Feique is a **Team AI Collaboration Hub**. It connects AI capabilities like Codex CLI and Claude Code through Feishu so team members collaborate, complement each other, uncover bottlenecks, and improve efficiency — driving the iteration from individual growth to smooth teamwork to continuous organizational capability building.
 
-Team members collaborate naturally through Feishu groups. Managers gain full visibility through dashboards and metrics. Project bindings persist by `chat_id`, local sessions can be adopted, shared repositories are automatically serialized, and queued runtime states are directly visible within Feishu. Final replies support rich text and cards, collapsed into cleaner single result messages.
+Currently supports the full AI coding workflow: project bindings persist by `chat_id`, local sessions can be adopted, shared repositories are automatically serialized, and queued runtime states are directly visible within Feishu. Final replies support rich text and cards, collapsed into cleaner single result messages.
 
 ## 🌟 Core Features
 
