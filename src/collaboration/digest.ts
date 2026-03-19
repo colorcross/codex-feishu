@@ -241,9 +241,12 @@ export function formatTeamDigest(digest: TeamDigest): string {
 export function createDigestPeriod(hours: number = 24): DigestPeriod {
   const to = new Date();
   const from = new Date(to.getTime() - hours * 3600_000);
-  const label = hours <= 24
-    ? `${from.toLocaleDateString('zh-CN')} ${from.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} — ${to.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
-    : `${from.toLocaleDateString('zh-CN')} — ${to.toLocaleDateString('zh-CN')}`;
+  const fmtDate = (d: Date) => d.toLocaleDateString('zh-CN');
+  const fmtTime = (d: Date) => d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  const sameDay = from.toDateString() === to.toDateString();
+  const label = sameDay
+    ? `${fmtDate(from)} ${fmtTime(from)} — ${fmtTime(to)}`
+    : `${fmtDate(from)} ${fmtTime(from)} — ${fmtDate(to)} ${fmtTime(to)}`;
 
   return { from, to, label };
 }

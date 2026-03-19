@@ -76,17 +76,17 @@ describe('enforceTrustBoundary', () => {
       expect(decision.requires_approval).toBe(false);
     });
 
-    it('blocks write operations', () => {
+    it('blocks write operations without approval option', () => {
       const decision = enforceTrustBoundary('observe', 'write');
       expect(decision.allowed).toBe(false);
-      expect(decision.requires_approval).toBe(true);
+      expect(decision.requires_approval).toBe(false);
       expect(decision.reason).toContain('观察');
     });
 
-    it('blocks dangerous operations', () => {
+    it('blocks dangerous operations without approval option', () => {
       const decision = enforceTrustBoundary('observe', 'dangerous');
       expect(decision.allowed).toBe(false);
-      expect(decision.requires_approval).toBe(true);
+      expect(decision.requires_approval).toBe(false);
     });
   });
 

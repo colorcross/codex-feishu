@@ -53,8 +53,10 @@ export function extractInsights(
 
   if (findings.length === 0) return null;
 
-  // Only auto-extract if the response is substantial
-  if (response.length < 100) return null;
+  // Only auto-extract if the response is substantial.
+  // Chinese packs ~2x more information per character than English,
+  // so 40 chars is a reasonable minimum for both languages.
+  if (response.length < 40) return null;
 
   const tags = [...new Set(findings.map((f) => f.tag)), 'auto-extracted'];
   const first = findings[0]!;

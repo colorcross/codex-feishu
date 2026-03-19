@@ -156,10 +156,10 @@ export function enforceTrustBoundary(
     case 'observe':
       return {
         allowed: operationClass === 'read',
-        requires_approval: operationClass !== 'read',
+        requires_approval: false,
         reason:
           operationClass !== 'read'
-            ? '当前项目信任等级为"观察"，只允许只读操作'
+            ? '当前项目信任等级为"观察"，只允许只读操作。使用 /trust set suggest 开启审批模式。'
             : undefined,
       };
 

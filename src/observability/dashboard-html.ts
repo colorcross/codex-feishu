@@ -9,7 +9,7 @@ export function renderDashboardHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Feique Dashboard</title>
+<title>飞鹊 仪表板</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -108,7 +108,7 @@ export function renderDashboardHtml(): string {
 </head>
 <body>
 <div class="header">
-  <h1>Feique Dashboard</h1>
+  <h1>飞鹊 仪表板</h1>
   <div class="header-right"><span class="refresh-dot"></span><span id="ts">--</span></div>
 </div>
 
