@@ -4,17 +4,27 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RunStateStore } from '../src/state/run-state-store.js';
 
+const stores: RunStateStore[] = [];
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  for (const store of stores.splice(0)) {
+    store.close();
+  }
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
+async function makeStoreAsync(): Promise<{ store: RunStateStore; dir: string }> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'feique-runs-'));
+  tempDirs.push(dir);
+  const store = new RunStateStore(dir);
+  stores.push(store);
+  return { store, dir };
+}
+
 describe('run state store', () => {
   it('tracks active runs and recovers stale ones', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'feique-runs-'));
-    tempDirs.push(dir);
-    const store = new RunStateStore(dir);
+    const { store } = await makeStoreAsync();
 
     await store.upsertRun('run-1', {
       queue_key: 'queue-a',
@@ -34,9 +44,7 @@ describe('run state store', () => {
   });
 
   it('keeps queued runs visible without marking them finished', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'feique-runs-'));
-    tempDirs.push(dir);
-    const store = new RunStateStore(dir);
+    const { store } = await makeStoreAsync();
 
     await store.upsertRun('run-running', {
       queue_key: 'queue-a',
@@ -66,9 +74,7 @@ describe('run state store', () => {
   });
 
   it('marks queued runs stale during recovery because queue state cannot survive a restart', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'feique-runs-'));
-    tempDirs.push(dir);
-    const store = new RunStateStore(dir);
+    const { store } = await makeStoreAsync();
 
     await store.upsertRun('run-queued', {
       queue_key: 'queue-a',
@@ -85,5 +91,74 @@ describe('run state store', () => {
     expect(recovered[0]?.status).toBe('stale');
     expect((await store.getRun('run-queued'))?.status).toBe('stale');
     expect(await store.listActiveRuns()).toEqual([]);
+  });
+
+  it('upsert updates existing run and preserves started_at', async () => {
+    const { store } = await makeStoreAsync();
+
+    const created = await store.upsertRun('run-u', {
+      queue_key: 'q', conversation_key: 'c', project_alias: 'p',
+      chat_id: 'ch', prompt_excerpt: 'first', status: 'running',
+    });
+    const updated = await store.upsertRun('run-u', {
+      queue_key: 'q', conversation_key: 'c', project_alias: 'p',
+      chat_id: 'ch', prompt_excerpt: 'first', status: 'success',
+    });
+
+    expect(updated.started_at).toBe(created.started_at);
+    expect(updated.status).toBe('success');
+    expect(updated.finished_at).toBeDefined();
+  });
+
+  it('listRuns returns all runs ordered by updated_at descending', async () => {
+    const { store } = await makeStoreAsync();
+
+    await store.upsertRun('run-a', {
+      queue_key: 'q', conversation_key: 'c', project_alias: 'p',
+      chat_id: 'ch', prompt_excerpt: 'a', status: 'success',
+    });
+    await store.upsertRun('run-b', {
+      queue_key: 'q', conversation_key: 'c', project_alias: 'p',
+      chat_id: 'ch', prompt_excerpt: 'b', status: 'running',
+    });
+
+    const runs = await store.listRuns();
+    expect(runs.map((r) => r.run_id)).toEqual(['run-b', 'run-a']);
+  });
+
+  it('getActiveRun returns running/orphaned run for queue key', async () => {
+    const { store } = await makeStoreAsync();
+
+    await store.upsertRun('run-done', {
+      queue_key: 'q1', conversation_key: 'c', project_alias: 'p',
+      chat_id: 'ch', prompt_excerpt: 'done', status: 'success',
+    });
+    await store.upsertRun('run-active', {
+      queue_key: 'q1', conversation_key: 'c', project_alias: 'p',
+      chat_id: 'ch', prompt_excerpt: 'active', status: 'running',
+    });
+
+    const active = await store.getActiveRun('q1');
+    expect(active?.run_id).toBe('run-active');
+
+    const none = await store.getActiveRun('nonexistent');
+    expect(none).toBeNull();
+  });
+
+  it('getRun returns null for unknown run', async () => {
+    const { store } = await makeStoreAsync();
+    expect(await store.getRun('nope')).toBeNull();
+  });
+
+  it('creates runs.db file in the state directory', async () => {
+    const { store, dir } = await makeStoreAsync();
+
+    await store.upsertRun('run-x', {
+      queue_key: 'q', conversation_key: 'c', project_alias: 'p',
+      chat_id: 'ch', prompt_excerpt: 'x', status: 'running',
+    });
+
+    const files = await fs.readdir(dir);
+    expect(files.some((f) => f === 'runs.db')).toBe(true);
   });
 });

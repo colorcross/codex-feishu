@@ -77,14 +77,24 @@ const MEMORY_SCHEMA_VERSION = 4;
 export class MemoryStore {
   private readonly dbPath: string;
   private readonly serial = new SerialExecutor();
+  private _db: DatabaseSync | null = null;
+  private _schemaReady = false;
+  private _lastTs = 0;
 
   public constructor(stateDir: string) {
     this.dbPath = path.join(stateDir, 'memory.db');
   }
 
+  /** Return an ISO timestamp that is strictly greater than any previous call. */
+  private monotonicNow(): string {
+    const now = Date.now();
+    this._lastTs = now > this._lastTs ? now : this._lastTs + 1;
+    return new Date(this._lastTs).toISOString();
+  }
+
   public async upsertThreadSummary(record: Omit<ThreadSummaryRecord, 'created_at' | 'updated_at'>): Promise<ThreadSummaryRecord> {
     return this.serial.run(async () => {
-      const now = new Date().toISOString();
+      const now = this.monotonicNow();
       return this.withDb((db) => {
         db.prepare(`
           INSERT INTO thread_summaries (
@@ -152,7 +162,7 @@ export class MemoryStore {
     expires_at?: string;
   }): Promise<MemoryRecord> {
     return this.serial.run(async () => {
-      const now = new Date().toISOString();
+      const now = this.monotonicNow();
       const record: MemoryRecord = {
         id: randomUUID(),
         scope: input.scope,
@@ -229,6 +239,7 @@ export class MemoryStore {
 
   public async searchMemories(selector: MemorySelector, query: string, limit: number, filters?: MemoryFilters): Promise<MemoryRecord[]> {
     await this.serial.wait();
+    const touchedAt = this.monotonicNow();
     return this.withDb((db) => {
       const ftsQuery = buildAsciiFtsQuery(query);
       if (ftsQuery) {
@@ -243,7 +254,7 @@ export class MemoryStore {
           LIMIT ?
         `).all(...params, ftsQuery, limit) as unknown as MemoryRow[];
         if (rows.length > 0) {
-          return touchRowsAndMap(db, rows);
+          return touchRowsAndMap(db, rows, touchedAt);
         }
       }
 
@@ -261,7 +272,7 @@ export class MemoryStore {
         ORDER BY pinned DESC, updated_at DESC
         LIMIT ?
       `).all(...params, normalized, normalized, normalized, limit) as unknown as MemoryRow[];
-      return touchRowsAndMap(db, rows);
+      return touchRowsAndMap(db, rows, touchedAt);
     });
   }
 
@@ -303,6 +314,7 @@ export class MemoryStore {
 
   public async listRecentMemories(selector: MemorySelector, limit: number, filters?: MemoryFilters): Promise<MemoryRecord[]> {
     await this.serial.wait();
+    const touchedAt = this.monotonicNow();
     return this.withDb((db) => {
       const { whereClause, params } = buildMemorySelectorWhere(selector, filters);
       const rows = db.prepare(`
@@ -312,7 +324,7 @@ export class MemoryStore {
         ORDER BY pinned DESC, updated_at DESC
         LIMIT ?
       `).all(...params, limit) as unknown as MemoryRow[];
-      return touchRowsAndMap(db, rows);
+      return touchRowsAndMap(db, rows, touchedAt);
     });
   }
 
@@ -370,7 +382,7 @@ export class MemoryStore {
   public async getMemoryStats(selector: MemorySelector): Promise<MemoryStats> {
     await this.serial.wait();
     return this.withDb((db) => {
-      const now = new Date().toISOString();
+      const now = this.monotonicNow();
       const params: Array<string | null> = [selector.scope, selector.project_alias];
       const baseClauses = ['scope = ?', 'project_alias = ?'];
       if (selector.scope === 'group') {
@@ -413,7 +425,7 @@ export class MemoryStore {
   public async cleanupExpiredMemories(selector?: MemorySelector): Promise<number> {
     return this.serial.run(async () => {
       return this.withDb((db) => {
-        const now = new Date().toISOString();
+        const now = this.monotonicNow();
         const clauses = ['archived_at IS NULL', 'expires_at IS NOT NULL', 'expires_at <= ?'];
         const params: Array<string | null> = [now];
         if (selector) {
@@ -441,8 +453,8 @@ export class MemoryStore {
     return this.withDb((db) => {
       const { whereClause, params } = buildMemorySelectorWhere(selector, {});
       const orderBy = basis === 'last_accessed_at'
-        ? 'COALESCE(last_accessed_at, updated_at, created_at) ASC, updated_at ASC'
-        : 'updated_at ASC';
+        ? 'COALESCE(last_accessed_at, updated_at, created_at) ASC, updated_at ASC, rowid ASC'
+        : 'updated_at ASC, created_at ASC, rowid ASC';
       const row = db.prepare(`
         SELECT id, scope, project_alias, chat_id, title, content, tags_json, source, pinned, confidence, created_by, created_at, updated_at, last_accessed_at, expires_at
         FROM project_memories
@@ -457,7 +469,7 @@ export class MemoryStore {
 
   public async setMemoryPinned(selector: MemorySelector, id: string, pinned: boolean): Promise<MemoryRecord | null> {
     return this.serial.run(async () => {
-      const now = new Date().toISOString();
+      const now = this.monotonicNow();
       return this.withDb((db) => {
         const { whereClause, params } = buildMemorySelectorWhere(selector);
         const result = db.prepare(`
@@ -482,7 +494,7 @@ export class MemoryStore {
 
   public async archiveMemory(selector: MemorySelector, id: string, input?: { archived_by?: string; reason?: string }): Promise<MemoryRecord | null> {
     return this.serial.run(async () => {
-      const now = new Date().toISOString();
+      const now = this.monotonicNow();
       return this.withDb((db) => {
         const { whereClause, params } = buildMemorySelectorWhere(selector);
         const result = db.prepare(`
@@ -509,7 +521,7 @@ export class MemoryStore {
 
   public async restoreMemory(selector: MemorySelector, id: string, restoredBy?: string): Promise<MemoryRecord | null> {
     return this.serial.run(async () => {
-      const now = new Date().toISOString();
+      const now = this.monotonicNow();
       return this.withDb((db) => {
         const { whereClause, params } = buildMemorySelectorWhere(selector, undefined, { includeArchived: true, includeExpired: true });
         const result = db.prepare(`
@@ -547,19 +559,32 @@ export class MemoryStore {
   public async ensureReady(): Promise<void> {
     await this.serial.run(async () => {
       await ensureDir(path.dirname(this.dbPath));
-      this.withDb(() => undefined);
+      this.getDb();
     });
   }
 
-  private withDb<T>(callback: (db: DatabaseSync) => T): T {
-    fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
-    const db = new DatabaseSync(this.dbPath);
-    try {
-      initializeSchema(db);
-      return callback(db);
-    } finally {
-      db.close();
+  public close(): void {
+    if (this._db) {
+      this._db.close();
+      this._db = null;
+      this._schemaReady = false;
     }
+  }
+
+  private getDb(): DatabaseSync {
+    if (!this._db) {
+      fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
+      this._db = new DatabaseSync(this.dbPath);
+    }
+    if (!this._schemaReady) {
+      initializeSchema(this._db);
+      this._schemaReady = true;
+    }
+    return this._db;
+  }
+
+  private withDb<T>(callback: (db: DatabaseSync) => T): T {
+    return callback(this.getDb());
   }
 }
 
@@ -814,11 +839,10 @@ function mapMemoryRow(row: MemoryRow): MemoryRecord {
   };
 }
 
-function touchRowsAndMap(db: DatabaseSync, rows: MemoryRow[]): MemoryRecord[] {
+function touchRowsAndMap(db: DatabaseSync, rows: MemoryRow[], touchedAt: string): MemoryRecord[] {
   if (rows.length === 0) {
     return [];
   }
-  const touchedAt = new Date().toISOString();
   const ids = rows.map((row) => row.id);
   const placeholders = ids.map(() => '?').join(', ');
   db.prepare(`

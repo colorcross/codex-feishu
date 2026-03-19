@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ensureDir } from '../utils/fs.js';
+import { ensureDir, writeUtf8Atomic } from '../utils/fs.js';
 import { SerialExecutor } from '../utils/serial-executor.js';
 
 export interface AuditEvent {
@@ -112,8 +112,7 @@ export class AuditLog {
         kept.push(...archived);
       }
 
-      await ensureDir(path.dirname(this.filePath));
-      await fs.writeFile(this.filePath, kept.length > 0 ? `${kept.join('\n')}\n` : '', 'utf8');
+      await writeUtf8Atomic(this.filePath, kept.length > 0 ? `${kept.join('\n')}\n` : '');
 
       return {
         kept: kept.length,

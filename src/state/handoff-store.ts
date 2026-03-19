@@ -17,29 +17,23 @@ const MAX_RECORDS = 100;
 export class HandoffStore {
   private readonly filePath: string;
   private readonly executor = new SerialExecutor();
-  private data: HandoffStoreData | null = null;
 
   public constructor(stateDir: string) {
     this.filePath = path.join(stateDir, 'handoffs.json');
   }
 
   private async load(): Promise<HandoffStoreData> {
-    if (this.data) return this.data;
-
     try {
       const content = await fs.readFile(this.filePath, 'utf8');
-      this.data = JSON.parse(content) as HandoffStoreData;
+      return JSON.parse(content) as HandoffStoreData;
     } catch {
-      this.data = { handoffs: [], reviews: [] };
+      return { handoffs: [], reviews: [] };
     }
-
-    return this.data;
   }
 
-  private async save(): Promise<void> {
-    if (!this.data) return;
+  private async save(data: HandoffStoreData): Promise<void> {
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fs.writeFile(this.filePath, JSON.stringify(this.data, null, 2), 'utf8');
+    await fs.writeFile(this.filePath, JSON.stringify(data, null, 2), 'utf8');
   }
 
   async addHandoff(record: HandoffRecord): Promise<void> {
@@ -49,7 +43,7 @@ export class HandoffStore {
       if (data.handoffs.length > MAX_RECORDS) {
         data.handoffs = data.handoffs.slice(0, MAX_RECORDS);
       }
-      await this.save();
+      await this.save(data);
     });
   }
 
@@ -62,7 +56,7 @@ export class HandoffStore {
       const record = data.handoffs[index]!;
       const updated: HandoffRecord = Object.assign(record, patch);
       data.handoffs[index] = updated;
-      await this.save();
+      await this.save(data);
       return updated;
     });
   }
@@ -105,7 +99,7 @@ export class HandoffStore {
       if (data.reviews.length > MAX_RECORDS) {
         data.reviews = data.reviews.slice(0, MAX_RECORDS);
       }
-      await this.save();
+      await this.save(data);
     });
   }
 
@@ -118,7 +112,7 @@ export class HandoffStore {
       const record = data.reviews[index]!;
       const updated: ReviewRecord = Object.assign(record, patch);
       data.reviews[index] = updated;
-      await this.save();
+      await this.save(data);
       return updated;
     });
   }

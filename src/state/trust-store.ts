@@ -13,29 +13,23 @@ type TrustStoreData = Record<string, TrustState>;
 export class TrustStore {
   private readonly filePath: string;
   private readonly executor = new SerialExecutor();
-  private data: TrustStoreData | null = null;
 
   public constructor(stateDir: string) {
     this.filePath = path.join(stateDir, 'trust.json');
   }
 
   private async load(): Promise<TrustStoreData> {
-    if (this.data) return this.data;
-
     try {
       const content = await fs.readFile(this.filePath, 'utf8');
-      this.data = JSON.parse(content) as TrustStoreData;
+      return JSON.parse(content) as TrustStoreData;
     } catch {
-      this.data = {};
+      return {};
     }
-
-    return this.data;
   }
 
-  private async save(): Promise<void> {
-    if (!this.data) return;
+  private async save(data: TrustStoreData): Promise<void> {
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fs.writeFile(this.filePath, JSON.stringify(this.data, null, 2), 'utf8');
+    await fs.writeFile(this.filePath, JSON.stringify(data, null, 2), 'utf8');
   }
 
   async getOrCreate(projectAlias: string): Promise<TrustState> {
@@ -43,7 +37,7 @@ export class TrustStore {
       const data = await this.load();
       if (!data[projectAlias]) {
         data[projectAlias] = createInitialTrustState(projectAlias);
-        await this.save();
+        await this.save(data);
       }
       return data[projectAlias];
     });
@@ -53,7 +47,7 @@ export class TrustStore {
     await this.executor.run(async () => {
       const data = await this.load();
       data[projectAlias] = state;
-      await this.save();
+      await this.save(data);
     });
   }
 
