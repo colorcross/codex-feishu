@@ -27,7 +27,7 @@ feique init --mode global
 如果你想固定到某个 release 产物，也可以直接安装 GitHub Release 的 tgz：
 
 ```bash
-npm install -g https://github.com/colorcross/feique/releases/download/v0.1.11/feique-0.1.11.tgz
+npm install -g https://github.com/colorcross/feique/releases/download/v1.1.0/feique-1.1.0.tgz
 feique init --mode global
 ```
 

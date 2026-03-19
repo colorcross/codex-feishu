@@ -1,4 +1,4 @@
-# 飞鹊 (Feique) v0.2.0
+# 飞鹊 (Feique) v1.1.0
 
 <div align="center">
 
