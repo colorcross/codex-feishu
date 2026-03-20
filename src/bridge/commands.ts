@@ -42,6 +42,7 @@ export type BridgeCommand =
   | { kind: 'trust'; action?: 'set'; level?: string }
   | { kind: 'timeline'; project?: string }
   | { kind: 'digest' }
+  | { kind: 'gaps' }
   | { kind: 'prompt'; prompt: string };
 
 export function parseBridgeCommand(input: string): BridgeCommand {
@@ -113,6 +114,8 @@ export function parseBridgeCommand(input: string): BridgeCommand {
       return { kind: 'timeline', project: argument || undefined };
     case '/digest':
       return { kind: 'digest' };
+    case '/gaps':
+      return { kind: 'gaps' };
     default:
       return { kind: 'prompt', prompt: trimmed };
   }
@@ -218,6 +221,7 @@ export function buildHelpText(): string {
     '/trust set <observe|suggest|execute|autonomous> 设置信任等级',
     '/timeline [项目] 查看项目协作时间线',
     '/digest 立即生成团队 AI 协作日报',
+    '/gaps 检测团队知识缺口',
     '',
     '管理员',
     '/admin status 查看管理员配置摘要',
@@ -336,6 +340,8 @@ export function describeBridgeCommand(command: BridgeCommand): string {
       return command.project ? `查看项目 ${command.project} 时间线` : '查看项目时间线';
     case 'digest':
       return '生成团队 AI 协作日报';
+    case 'gaps':
+      return '检测知识缺口';
     case 'prompt':
       return truncateForDescription(command.prompt);
   }
@@ -370,6 +376,7 @@ export function isReadOnlyCommand(command: BridgeCommand): boolean {
     case 'insights':
     case 'timeline':
     case 'digest':
+    case 'gaps':
       return true;
     case 'trust':
       return !command.action;
@@ -529,6 +536,11 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
   const timelineProjectMatch = normalized.match(/^(?:(?:查看|看|查)(?:一下|下)?|看看)?(\S+?)(?:的|项目的?)(?:时间线|动态|历史|活动|进展)$/);
   if (timelineProjectMatch) {
     return { kind: 'timeline', project: timelineProjectMatch[1] };
+  }
+
+  // ── /gaps: 知识缺口检测 ──
+  if (/^(?:(?:查看|看|查|检测)(?:一下|下)?)?(?:知识缺口|缺口检测|知识(?:盲区|空白|短板)|(?:哪些|什么)(?:知识|经验)(?:缺失|不够|没有)|team knowledge gaps?)$/i.test(normalized)) {
+    return { kind: 'gaps' };
   }
 
   // ── /digest: 团队日报 ──

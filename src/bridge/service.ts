@@ -53,6 +53,8 @@ import { HandoffStore } from '../state/handoff-store.js';
 import { TrustStore } from '../state/trust-store.js';
 import { IntentClassifier } from './intent-classifier.js';
 import { buildTeamDigest, formatTeamDigest, createDigestPeriod } from '../collaboration/digest.js';
+import { checkRunAlerts, checkLongRunningAlerts, formatAlert, type AlertRules, DEFAULT_ALERT_RULES } from '../collaboration/proactive-alerts.js';
+import { detectKnowledgeGaps, formatKnowledgeGaps } from '../collaboration/knowledge-gaps.js';
 import { estimateCost } from '../observability/cost.js';
 
 interface ActiveRunHandle {
@@ -301,6 +303,19 @@ export class FeiqueService {
       await this.runMemoryMaintenance();
     }
     await this.runAuditMaintenance();
+
+    // Proactive: check for long-running tasks
+    try {
+      const activeRuns = await this.runStateStore.listRuns();
+      const longAlerts = checkLongRunningAlerts(activeRuns);
+      for (const alert of longAlerts) {
+        const text = formatAlert(alert);
+        for (const chatId of this.config.security.admin_chat_ids) {
+          try { await this.feishuClient.sendText(chatId, text); } catch { /* best-effort */ }
+        }
+        await this.notifyProjectChats(alert.project_alias, text);
+      }
+    } catch { /* best-effort */ }
   }
 
   public async handleIncomingMessage(context: IncomingMessageContext): Promise<void> {
@@ -456,6 +471,9 @@ export class FeiqueService {
         case 'digest':
           this.metrics?.recordCollaborationEvent('digest');
           await this.handleDigestCommand(context);
+          return;
+        case 'gaps':
+          await this.handleGapsCommand(context);
           return;
         case 'prompt':
           await this.handlePromptMessage(context, selectionKey, command.prompt, context.text);
@@ -925,6 +943,14 @@ export class FeiqueService {
         this.metrics?.recordTrustLevel(input.projectAlias, updated.current_level);
       } catch { /* trust tracking is best-effort */ }
 
+      // Proactive alerts: check if this run triggers any team alerts
+      try {
+        const completedRunState = await this.runStateStore.getRun(runId);
+        if (completedRunState) {
+          await this.checkAndSendAlerts(completedRunState);
+        }
+      } catch { /* alerts are best-effort */ }
+
       // Direction 2: Auto-extract knowledge
       if (this.config.service.memory_enabled && excerpt.length >= 100) {
         try {
@@ -1004,6 +1030,13 @@ export class FeiqueService {
         // Notify project chats about the failure
         await this.notifyProjectChats(input.projectAlias,
           `❌ 运行失败 [${input.projectAlias}]\n${message.slice(0, 200)}`);
+        // Proactive alerts on failure
+        try {
+          const failedRunState = await this.runStateStore.getRun(runId);
+          if (failedRunState) {
+            await this.checkAndSendAlerts(failedRunState);
+          }
+        } catch { /* alerts are best-effort */ }
       }
       if (cancelled) {
         this.logger.warn(
@@ -1842,6 +1875,49 @@ export class FeiqueService {
     const auditEvents = await this.auditLog.tail(500);
     const digest = buildTeamDigest(runs, memories, auditEvents, period);
     const text = formatTeamDigest(digest);
+    await this.sendTextReply(context.chat_id, text, context.message_id, context.text);
+  }
+
+  // ── Proactive Alerts ──
+
+  private async checkAndSendAlerts(completedRun: RunState): Promise<void> {
+    const recentRuns = await this.runStateStore.listRuns();
+    const projectConfig = this.config.projects[completedRun.project_alias];
+    const dailyQuota = projectConfig?.daily_token_quota;
+
+    const alerts = checkRunAlerts(completedRun, recentRuns, DEFAULT_ALERT_RULES, dailyQuota);
+    if (alerts.length === 0) return;
+
+    for (const alert of alerts) {
+      const text = formatAlert(alert);
+
+      // Send to admin chat IDs
+      for (const chatId of this.config.security.admin_chat_ids) {
+        try { await this.feishuClient.sendText(chatId, text); } catch { /* best-effort */ }
+      }
+
+      // Send to project notification channels
+      await this.notifyProjectChats(alert.project_alias, text);
+
+      await this.auditLog.append({
+        type: 'collaboration.alert.sent',
+        alert_kind: alert.kind,
+        severity: alert.severity,
+        project_alias: alert.project_alias,
+        actor_id: alert.actor_id,
+      });
+    }
+  }
+
+  // ── Knowledge Gap Detection ──
+
+  private async handleGapsCommand(context: IncomingMessageContext): Promise<void> {
+    const runs = await this.runStateStore.listRuns();
+    const memories = this.config.service.memory_enabled
+      ? await this.memoryStore.listRecentMemories({ scope: 'project', project_alias: '' }, 200)
+      : [];
+    const gaps = detectKnowledgeGaps(runs, memories);
+    const text = formatKnowledgeGaps(gaps);
     await this.sendTextReply(context.chat_id, text, context.message_id, context.text);
   }
 
