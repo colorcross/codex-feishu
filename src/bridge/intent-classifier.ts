@@ -1,8 +1,9 @@
 /**
  * AI-powered intent classifier for natural language command matching.
  *
- * Uses Ollama chat completion to classify user messages into bridge
- * commands when regex patterns fail to match. Works across any language.
+ * Uses the same Ollama instance as the embedding provider — no extra
+ * dependency. Auto-detects a suitable chat model from Ollama's local
+ * model list (prefers the embedding model's family, falls back to any).
  *
  * Architecture: regex-first, AI-fallback. The AI call only happens
  * when the regex parser returns { kind: 'prompt' }.
@@ -12,23 +13,13 @@ import type { BridgeCommand } from './commands.js';
 
 export interface IntentClassifierConfig {
   enabled: boolean;
-  /** Ollama base URL. Default: http://127.0.0.1:11434 */
+  /** Ollama base URL — reuses the embedding config. */
   ollama_base_url: string;
-  /** Model for intent classification. Default: qwen3.5:latest */
-  model: string;
   /** Timeout in ms. Default: 5000 */
   timeout_ms: number;
   /** Minimum confidence to accept (0-1). Default: 0.8 */
   min_confidence: number;
 }
-
-export const DEFAULT_INTENT_CONFIG: IntentClassifierConfig = {
-  enabled: false,
-  ollama_base_url: 'http://127.0.0.1:11434',
-  model: 'qwen3.5:latest',
-  timeout_ms: 5000,
-  min_confidence: 0.8,
-};
 
 interface ClassificationResult {
   intent: string;
@@ -36,8 +27,34 @@ interface ClassificationResult {
   params: Record<string, string>;
 }
 
+/** Ranked preference for chat models (auto-detection). */
+const CHAT_MODEL_PREFERENCE: string[] = [
+  'qwen3.5',
+  'qwen3',
+  'qwen2.5',
+  'llama3',
+  'llama4',
+  'mistral',
+  'gemma',
+  'phi',
+  'deepseek',
+];
+
+/** Models that are NOT suitable for chat (embedding-only, vision-only, etc). */
+const NON_CHAT_PATTERNS = [
+  /embed/i,
+  /^bge-/i,
+  /^gte-/i,
+  /^nomic-embed/i,
+  /^all-minilm/i,
+  /^snowflake/i,
+  /^jina-embeddings/i,
+  /^mxbai-embed/i,
+  /vision-only/i,
+];
+
 const INTENT_DEFINITIONS = `You are an intent classifier for a team AI collaboration tool called Feique (飞鹊).
-Classify the user message into ONE of these intents. Reply with ONLY a JSON object, no other text.
+Classify the user message into ONE of these intents. Reply with ONLY a JSON object, no other text. Do not use thinking tags.
 
 Intents:
 - help: View help
@@ -69,13 +86,14 @@ Rules:
 - For backend switching, the name must be "codex" or "claude"
 - Confidence should be 0.0-1.0 based on how certain you are
 
-Respond with exactly: {"intent":"...","confidence":0.X,"params":{...}}`;
+Respond with exactly: {"intent":"...","confidence":0.X,"params":{}}`;
 
 export class IntentClassifier {
   private readonly config: IntentClassifierConfig;
+  private resolvedModel: string | null = null;
 
-  constructor(config?: Partial<IntentClassifierConfig>) {
-    this.config = { ...DEFAULT_INTENT_CONFIG, ...config };
+  constructor(config: IntentClassifierConfig) {
+    this.config = config;
   }
 
   async classify(message: string): Promise<BridgeCommand | null> {
@@ -83,20 +101,72 @@ export class IntentClassifier {
     if (!message.trim()) return null;
 
     try {
-      const result = await this.callOllama(message);
+      const model = await this.ensureModel();
+      if (!model) return null;
+
+      const result = await this.callOllama(model, message);
       if (!result || result.confidence < this.config.min_confidence) return null;
       if (result.intent === 'prompt') return null;
 
       return this.mapIntentToCommand(result);
     } catch {
-      return null; // AI classification is best-effort
+      return null;
     }
   }
 
-  private async callOllama(message: string): Promise<ClassificationResult | null> {
+  /** The chat model actually in use (null if not yet resolved). */
+  activeModel(): string | null {
+    return this.resolvedModel;
+  }
+
+  // ── Private ──
+
+  private async ensureModel(): Promise<string | null> {
+    if (this.resolvedModel) return this.resolvedModel;
+
+    try {
+      const url = `${this.config.ollama_base_url}/api/tags`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.config.timeout_ms);
+
+      try {
+        const response = await fetch(url, { method: 'GET', signal: controller.signal });
+        if (!response.ok) return null;
+
+        const data = (await response.json()) as { models: Array<{ name: string }> };
+        const allModels = data.models?.map((m) => m.name) ?? [];
+
+        // Filter out embedding-only models
+        const chatModels = allModels.filter((name) =>
+          !NON_CHAT_PATTERNS.some((pattern) => pattern.test(name)),
+        );
+
+        if (chatModels.length === 0) return null;
+
+        // Pick best by preference
+        for (const pref of CHAT_MODEL_PREFERENCE) {
+          const match = chatModels.find((m) => m.toLowerCase().includes(pref.toLowerCase()));
+          if (match) {
+            this.resolvedModel = match;
+            return match;
+          }
+        }
+
+        // Fallback: first available chat model
+        this.resolvedModel = chatModels[0]!;
+        return this.resolvedModel;
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  private async callOllama(model: string, message: string): Promise<ClassificationResult | null> {
     const url = `${this.config.ollama_base_url}/api/chat`;
     const body = JSON.stringify({
-      model: this.config.model,
+      model,
       messages: [
         { role: 'system', content: INTENT_DEFINITIONS },
         { role: 'user', content: message },
@@ -125,7 +195,6 @@ export class IntentClassifier {
       const content = data.message?.content?.trim();
       if (!content) return null;
 
-      // Extract JSON from response (may have markdown fences or extra text)
       const jsonMatch = content.match(/\{[^}]+\}/);
       if (!jsonMatch) return null;
 

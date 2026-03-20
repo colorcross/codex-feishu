@@ -123,7 +123,6 @@ export class FeiqueService {
       this.intentClassifier = new IntentClassifier({
         enabled: true,
         ollama_base_url: config.embedding.ollama_base_url,
-        model: config.service.intent_classifier_model,
         timeout_ms: config.service.intent_classifier_timeout_ms,
         min_confidence: config.service.intent_classifier_min_confidence,
       });
