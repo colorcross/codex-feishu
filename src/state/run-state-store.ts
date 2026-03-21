@@ -13,6 +13,7 @@ export interface RunState {
   project_alias: string;
   chat_id: string;
   actor_id?: string;
+  actor_name?: string;
   session_id?: string;
   project_root?: string;
   pid?: number;
@@ -64,6 +65,7 @@ export class RunStateStore {
         started_at: existing?.started_at ?? now,
         updated_at: now,
         actor_id: pickPatchedValue(patch, 'actor_id', existing?.actor_id),
+        actor_name: pickPatchedValue(patch, 'actor_name', existing?.actor_name),
         session_id: pickPatchedValue(patch, 'session_id', existing?.session_id),
         project_root: pickPatchedValue(patch, 'project_root', existing?.project_root),
         pid: pickPatchedValue(patch, 'pid', existing?.pid),
@@ -83,10 +85,10 @@ export class RunStateStore {
       this.db.prepare(`
         INSERT OR REPLACE INTO runs (
           run_id, queue_key, conversation_key, project_alias, chat_id,
-          actor_id, session_id, project_root, pid, prompt_excerpt,
+          actor_id, actor_name, session_id, project_root, pid, prompt_excerpt,
           status, status_detail, started_at, updated_at, finished_at, error,
           input_tokens, output_tokens, estimated_cost_usd
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         next.run_id,
         next.queue_key,
@@ -94,6 +96,7 @@ export class RunStateStore {
         next.project_alias,
         next.chat_id,
         next.actor_id ?? null,
+        next.actor_name ?? null,
         next.session_id ?? null,
         next.project_root ?? null,
         next.pid ?? null,
@@ -265,7 +268,7 @@ export class RunStateStore {
     this.db.prepare(`
       UPDATE runs SET
         queue_key = ?, conversation_key = ?, project_alias = ?, chat_id = ?,
-        actor_id = ?, session_id = ?, project_root = ?, pid = ?,
+        actor_id = ?, actor_name = ?, session_id = ?, project_root = ?, pid = ?,
         prompt_excerpt = ?, status = ?, status_detail = ?,
         started_at = ?, updated_at = ?, finished_at = ?, error = ?,
         input_tokens = ?, output_tokens = ?, estimated_cost_usd = ?
@@ -276,6 +279,7 @@ export class RunStateStore {
       run.project_alias,
       run.chat_id,
       run.actor_id ?? null,
+      run.actor_name ?? null,
       run.session_id ?? null,
       run.project_root ?? null,
       run.pid ?? null,
@@ -318,6 +322,7 @@ interface RunRow {
   project_alias: string;
   chat_id: string;
   actor_id: string | null;
+  actor_name: string | null;
   session_id: string | null;
   project_root: string | null;
   pid: number | null;
@@ -341,6 +346,7 @@ function mapRunRow(row: RunRow): RunState {
     project_alias: row.project_alias,
     chat_id: row.chat_id,
     actor_id: row.actor_id ?? undefined,
+    actor_name: row.actor_name ?? undefined,
     session_id: row.session_id ?? undefined,
     project_root: row.project_root ?? undefined,
     pid: row.pid ?? undefined,
@@ -393,6 +399,9 @@ function initializeSchema(db: DatabaseSync): void {
   // Migrate existing databases that lack the token columns.
   const cols = db.prepare("PRAGMA table_info('runs')").all() as Array<{ name: string }>;
   const colNames = new Set(cols.map((c) => c.name));
+  if (!colNames.has('actor_name')) {
+    db.exec('ALTER TABLE runs ADD COLUMN actor_name TEXT;');
+  }
   if (!colNames.has('input_tokens')) {
     db.exec('ALTER TABLE runs ADD COLUMN input_tokens INTEGER;');
   }

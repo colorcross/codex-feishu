@@ -11,7 +11,7 @@ export type AdminProjectAction = 'add' | 'create' | 'remove' | 'set' | 'list';
 export type AdminConfigAction = 'history' | 'rollback';
 
 export type BridgeCommand =
-  | { kind: 'help' }
+  | { kind: 'help'; detail?: boolean }
   | { kind: 'status'; detail?: boolean }
   | { kind: 'projects' }
   | { kind: 'new' }
@@ -61,7 +61,7 @@ export function parseBridgeCommand(input: string): BridgeCommand {
 
   switch (command) {
     case '/help':
-      return { kind: 'help' };
+      return { kind: 'help', detail: argument === 'all' || argument === '详细' };
     case '/status':
       return { kind: 'status', detail: argument === 'detail' };
     case '/projects':
@@ -130,6 +130,28 @@ export function normalizeIncomingText(input: string): string {
 }
 
 export function buildHelpText(): string {
+  return [
+    '飞鹊 (Feique) — 团队 AI 协作中枢',
+    '',
+    '常用命令',
+    '/projects 查看可用项目',
+    '/project <名称> 切换项目',
+    '/status 查看当前状态',
+    '/backend codex|claude 切换后端',
+    '/team 查看团队成员活动',
+    '/learn <内容> 记录团队知识',
+    '/recall <关键词> 检索知识',
+    '/insights 团队效率体检',
+    '/digest 生成团队日报',
+    '/gaps 检测知识缺口',
+    '',
+    '所有命令均支持自然语言，如：用 claude / 谁在用AI / 效率怎么样',
+    '',
+    '输入 /help all 查看完整命令列表',
+  ].join('\n');
+}
+
+export function buildFullHelpText(): string {
   return [
     '飞鹊 (Feique)',
     '',
@@ -496,13 +518,13 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
   }
 
   // ── /approve: 批准（短句高置信度匹配）──
-  const approveMatch = normalized.match(/^(?:通过|批准|同意|没问题|可以|LGTM|approved?|OK|没啥问题|挺好的?|就这样吧|可以的)(?:[，,：:\s]+(.+))?$/i);
+  const approveMatch = normalized.match(/^(?:通过|批准|同意|LGTM|approved?)(?:[，,：:\s]+(.+))?$/i);
   if (approveMatch) {
     return { kind: 'approve', comment: approveMatch[1]?.trim() || undefined };
   }
 
   // ── /reject: 打回 ──
-  const rejectMatch = normalized.match(/^(?:不行|打回|驳回|退回|有问题|不通过|需要修改|reject(?:ed)?|不可以|不同意)(?:[，,：:\s]+(.+))?$/i);
+  const rejectMatch = normalized.match(/^(?:不行|打回|驳回|退回|不通过|reject(?:ed)?)(?:[，,：:\s]+(.+))?$/i);
   if (rejectMatch) {
     return { kind: 'reject', reason: rejectMatch[1]?.trim() || undefined };
   }

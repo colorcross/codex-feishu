@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { BridgeConfig, ProjectConfig, SessionScope } from '../config/schema.js';
 import {
   buildHelpText,
+  buildFullHelpText,
   describeBridgeCommand,
   isReadOnlyCommand,
   normalizeIncomingText,
@@ -381,7 +382,7 @@ export class FeiqueService {
     try {
       switch (command.kind) {
         case 'help':
-          await this.sendTextReply(context.chat_id, buildHelpText(), context.message_id, context.text);
+          await this.sendTextReply(context.chat_id, command.detail ? buildFullHelpText() : buildHelpText(), context.message_id, context.text);
           return;
         case 'projects':
           await this.sendTextReply(context.chat_id, await this.buildProjectsText(selectionKey, context.chat_id), context.message_id, context.text);
@@ -493,7 +494,7 @@ export class FeiqueService {
         error: message,
         message_id: context.message_id,
       });
-      await this.sendTextReply(context.chat_id, `处理失败:\n${message}`, context.message_id, context.text);
+      await this.sendTextReply(context.chat_id, `处理失败:\n${friendlyErrorMessage(message)}`, context.message_id, context.text);
     }
   }
 
@@ -733,6 +734,7 @@ export class FeiqueService {
       project_alias: input.projectAlias,
       chat_id: input.chatId,
       actor_id: input.actorId,
+      actor_name: input.incomingMessage.actor_name,
       session_id: currentSession?.thread_id,
       project_root: projectRoot,
       prompt_excerpt: truncateExcerpt(input.prompt),
@@ -1069,10 +1071,10 @@ export class FeiqueService {
         input,
         runId,
         title: cancelled ? '运行已取消' : '执行失败',
-        body: cancelled ? '当前运行已取消。' : ['执行失败。', '', message].join('\n'),
+        body: cancelled ? '当前运行已取消。' : ['执行失败。', '', friendlyErrorMessage(message)].join('\n'),
         runStatus: cancelled ? 'cancelled' : 'failure',
         runPhase: cancelled ? '已取消' : '失败',
-        cardSummary: truncateForFeishuCard(cancelled ? '当前运行已取消。' : message),
+        cardSummary: truncateForFeishuCard(cancelled ? '当前运行已取消。' : friendlyErrorMessage(message)),
       });
     } finally {
       this.activeRuns.delete(input.queueKey);
@@ -1162,7 +1164,7 @@ export class FeiqueService {
   ): Promise<void> {
     switch (command.kind) {
       case 'help':
-        await this.sendTextReply(context.chat_id, buildHelpText(), context.message_id, context.text);
+        await this.sendTextReply(context.chat_id, command.detail ? buildFullHelpText() : buildHelpText(), context.message_id, context.text);
         return;
       case 'projects':
         await this.sendTextReply(context.chat_id, await this.buildProjectsText(selectionKey, context.chat_id), context.message_id, context.text);
@@ -1346,6 +1348,7 @@ export class FeiqueService {
       {
         chatId: context.chat_id,
         actorId: context.actor_id,
+        actorName: context.actor_name,
         prompt,
       },
       async (runId) => {
@@ -3670,6 +3673,7 @@ export class FeiqueService {
     metadata: {
       chatId: string;
       actorId?: string;
+      actorName?: string;
       prompt: string;
     },
     task: (runId?: string) => Promise<void>,
@@ -3711,6 +3715,7 @@ export class FeiqueService {
     metadata: {
       chatId: string;
       actorId?: string;
+      actorName?: string;
       prompt: string;
     },
     runId: string,
@@ -3736,6 +3741,7 @@ export class FeiqueService {
       project_alias: projectContext.projectAlias,
       chat_id: metadata.chatId,
       actor_id: metadata.actorId,
+      actor_name: metadata.actorName,
       project_root: projectRoot,
       prompt_excerpt: truncateExcerpt(metadata.prompt),
       status: 'queued',
@@ -4282,11 +4288,14 @@ export class FeiqueService {
     const bodyWithMention = mentionPrefix ? mentionPrefix + body : body;
 
     const title = this.buildReplyTitle(this.sanitizeUserVisibleReply(body));
-    const formattedBody = this.sanitizeUserVisibleReply(this.formatQuotedReply(bodyWithMention, originalText));
+    // Card mode uses replyToMessageId for threading — @mention tags render as
+    // literal text inside card JSON, so use the clean body for cards.
+    const formattedBodyClean = this.sanitizeUserVisibleReply(this.formatQuotedReply(body, originalText));
+    const formattedBodyWithMention = this.sanitizeUserVisibleReply(this.formatQuotedReply(bodyWithMention, originalText));
     if (this.config.service.reply_mode === 'card') {
       const card = buildMessageCard({
         title,
-        body: formattedBody,
+        body: formattedBodyClean,
         status: presentation?.status,
         phase: presentation?.phase,
         projectAlias: presentation?.projectAlias,
@@ -4302,7 +4311,7 @@ export class FeiqueService {
       return response;
     }
     if (this.config.service.reply_mode === 'post') {
-      const post = buildFeishuPost(title, formattedBody);
+      const post = buildFeishuPost(title, formattedBodyWithMention);
       if (this.config.service.reply_quote_user_message && replyToMessageId) {
         const response = await this.feishuClient.sendPost(chatId, post, { replyToMessageId });
         await this.auditLog.append({
@@ -4334,7 +4343,7 @@ export class FeiqueService {
       });
       return response;
     }
-    const response = await this.feishuClient.sendText(chatId, formattedBody);
+    const response = await this.feishuClient.sendText(chatId, formattedBodyWithMention);
     await this.auditLog.append({
       type: 'message.replied',
       chat_id: chatId,
@@ -4779,6 +4788,32 @@ function buildCardDedupeKey(context: IncomingCardActionContext, action: string):
 
 function truncateExcerpt(text: string, limit: number = 160): string {
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
+}
+
+/** Map raw error strings to user-friendly Chinese messages. */
+function friendlyErrorMessage(error: string): string {
+  const lower = error.toLowerCase();
+  if (lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('econnreset')) {
+    return '网络连接失败，请检查网络或稍后重试';
+  }
+  if (lower.includes('enoent') || lower.includes('enotdir')) {
+    return '文件路径不存在，请检查项目配置';
+  }
+  if (lower.includes('permission denied') || lower.includes('eacces')) {
+    return '权限不足，请检查文件权限';
+  }
+  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
+    return '执行超时，请尝试拆分为更小的任务';
+  }
+  if (lower.includes('rate limit') || lower.includes('429') || lower.includes('too many requests')) {
+    return 'API 频率限制，请稍后重试';
+  }
+  if (lower.includes('enomem') || lower.includes('out of memory')) {
+    return '内存不足，请关闭其他程序或减少并发任务';
+  }
+  // Default: show a truncated version of the raw error
+  const truncated = error.length > 100 ? error.slice(0, 100) + '...' : error;
+  return `执行异常: ${truncated}。如需帮助请联系管理员。`;
 }
 
 function splitCommaSeparatedValues(value: string): string[] {

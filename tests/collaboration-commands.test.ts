@@ -322,14 +322,14 @@ describe('natural language collaboration commands', () => {
   it('parses "通过"', () => {
     expect(parseBridgeCommand('通过')).toEqual({ kind: 'approve' });
   });
-  it('parses "没问题"', () => {
-    expect(parseBridgeCommand('没问题')).toEqual({ kind: 'approve' });
+  it('no longer parses casual "没问题" as approve (too greedy)', () => {
+    expect(parseBridgeCommand('没问题')).toEqual({ kind: 'prompt', prompt: '没问题' });
   });
   it('parses "LGTM"', () => {
     expect(parseBridgeCommand('LGTM')).toEqual({ kind: 'approve' });
   });
-  it('parses "可以，做得不错" (with comment)', () => {
-    expect(parseBridgeCommand('可以，做得不错')).toEqual({ kind: 'approve', comment: '做得不错' });
+  it('no longer parses casual "可以" as approve (too greedy)', () => {
+    expect(parseBridgeCommand('可以，做得不错')).toEqual({ kind: 'prompt', prompt: '可以，做得不错' });
   });
 
   // ── /reject natural language ──

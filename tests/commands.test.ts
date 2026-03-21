@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHelpText, describeBridgeCommand, isReadOnlyCommand, normalizeIncomingText, parseBridgeCommand } from '../src/bridge/commands.js';
+import { buildHelpText, buildFullHelpText, describeBridgeCommand, isReadOnlyCommand, normalizeIncomingText, parseBridgeCommand } from '../src/bridge/commands.js';
 
 describe('bridge commands', () => {
   it('parses project switch commands', () => {
@@ -344,8 +344,18 @@ describe('bridge commands', () => {
     });
   });
 
-  it('renders help text with key commands', () => {
+  it('renders short help text with essential commands', () => {
     const helpText = buildHelpText();
+    expect(helpText).toContain('/projects');
+    expect(helpText).toContain('/status');
+    expect(helpText).toContain('/team');
+    expect(helpText).toContain('/learn');
+    expect(helpText).toContain('/recall');
+    expect(helpText).toContain('/help all');
+  });
+
+  it('renders full help text with all commands', () => {
+    const helpText = buildFullHelpText();
     expect(helpText).toContain('/projects');
     expect(helpText).toContain('/status detail');
     expect(helpText).toContain('/new');

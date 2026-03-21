@@ -37,6 +37,7 @@ export function buildTeamActivityView(runs: RunState[]): TeamMemberActivity[] {
     .filter((r) => ACTIVE_STATUSES.has(r.status))
     .map((r) => ({
       actor_id: r.actor_id ?? 'unknown',
+      actor_name: r.actor_name,
       chat_id: r.chat_id,
       project_alias: r.project_alias,
       project_root: r.project_root,
@@ -100,7 +101,7 @@ export function formatTeamView(activities: TeamMemberActivity[]): string {
   if (running.length > 0) {
     lines.push(`🟢 执行中 (${running.length})`);
     for (const a of running) {
-      const actor = a.actor_id;
+      const actor = a.actor_name ?? a.actor_id;
       const elapsed = formatElapsed(a.started_at);
       lines.push(`  • ${actor} → ${a.project_alias} (${elapsed})`);
       if (a.prompt_excerpt) {
@@ -112,7 +113,7 @@ export function formatTeamView(activities: TeamMemberActivity[]): string {
   if (queued.length > 0) {
     lines.push(`\n⏳ 排队中 (${queued.length})`);
     for (const a of queued) {
-      lines.push(`  • ${a.actor_id} → ${a.project_alias}`);
+      lines.push(`  • ${a.actor_name ?? a.actor_id} → ${a.project_alias}`);
     }
   }
 
