@@ -3466,6 +3466,8 @@ export class FeiqueService {
   ): Promise<string> {
     const prefixParts = [
       'You are replying through Feique, a team AI collaboration hub connected via Feishu.',
+      'Your response text will be forwarded to the user via Feishu. Do NOT directly call Feishu APIs, send Feishu messages, or use any Feishu MCP tools — the bridge handles all Feishu communication. Sending messages directly would cause duplicates.',
+      'You CANNOT send files, images, or attachments to Feishu. If the user asks you to send/share a file, explain this limitation and suggest alternatives: provide the file content as text, give the file path for them to access locally, or paste key excerpts in your response.',
       'Keep the final response concise and action-oriented.',
       'When files change, summarize key paths and verification.',
       'Do not expose session IDs, run IDs, chat IDs, conversation keys, secrets, raw logs, or absolute local filesystem paths to Feishu users unless they explicitly ask for them.',
