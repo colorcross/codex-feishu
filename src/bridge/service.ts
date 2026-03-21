@@ -158,24 +158,71 @@ export class FeiqueService {
   }
 
   /**
-   * Reload config from disk without restarting the service.
-   * Called automatically when config file changes, or manually via admin command.
+   * Reload config from disk with validation, diff, and admin notification.
+   *
+   * Flow:
+   * 1. Parse new config — if invalid, reject and notify admin with error
+   * 2. Diff against current config — identify what changed
+   * 3. Apply new config to memory
+   * 4. Notify admin chat(s) with change summary
    */
-  public async reloadConfig(configPath: string): Promise<{ ok: boolean; error?: string }> {
+  public async reloadConfig(configPath: string): Promise<{ ok: boolean; error?: string; changes?: string[] }> {
+    let newConfig: BridgeConfig;
     try {
       const { config } = await loadBridgeConfigFile(configPath);
-      this.config = config;
-      this.logger.info({ configPath }, 'Config reloaded');
-      return { ok: true };
+      newConfig = config;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      this.logger.error({ configPath, error: msg }, 'Config reload failed');
+      this.logger.error({ configPath, error: msg }, 'Config reload rejected — invalid config');
+
+      // Notify admin about the broken config
+      const alertText = `🔴 配置变更被拒绝\n\n文件: ${configPath}\n原因: ${msg}\n\n当前服务继续使用旧配置运行。请修正后重新保存。`;
+      for (const chatId of this.config.security.admin_chat_ids) {
+        try { await this.feishuClient.sendText(chatId, alertText); } catch { /* best-effort */ }
+      }
+
+      await this.auditLog.append({
+        type: 'config.reload.rejected',
+        config_path: configPath,
+        error: msg,
+      });
+
       return { ok: false, error: msg };
     }
+
+    // Diff: what changed?
+    const changes = diffConfigs(this.config, newConfig);
+
+    if (changes.length === 0) {
+      this.logger.debug({ configPath }, 'Config file changed but no effective differences');
+      return { ok: true, changes: [] };
+    }
+
+    // Apply
+    const oldConfig = this.config;
+    this.config = newConfig;
+    this.logger.info({ configPath, changeCount: changes.length }, 'Config reloaded');
+
+    // Notify admin
+    const changeList = changes.slice(0, 15).map((c) => `  • ${c}`).join('\n');
+    const truncated = changes.length > 15 ? `\n  …及其他 ${changes.length - 15} 项变更` : '';
+    const notifyText = `✅ 配置已热加载\n\n${changes.length} 项变更:\n${changeList}${truncated}`;
+    for (const chatId of (oldConfig.security.admin_chat_ids.length > 0 ? oldConfig.security.admin_chat_ids : newConfig.security.admin_chat_ids)) {
+      try { await this.feishuClient.sendText(chatId, notifyText); } catch { /* best-effort */ }
+    }
+
+    await this.auditLog.append({
+      type: 'config.reload.applied',
+      config_path: configPath,
+      change_count: changes.length,
+      changes: changes.slice(0, 20),
+    });
+
+    return { ok: true, changes };
   }
 
   /**
-   * Watch config file for changes and auto-reload.
+   * Watch config file for changes and auto-reload with validation.
    */
   public startConfigWatcher(configPath: string): void {
     if (this.configWatcher) return;
@@ -184,11 +231,8 @@ export class FeiqueService {
       this.configWatcher = watchFile(configPath, () => {
         if (debounce) clearTimeout(debounce);
         debounce = setTimeout(async () => {
-          const result = await this.reloadConfig(configPath);
-          if (result.ok) {
-            this.logger.info('Config auto-reloaded after file change');
-          }
-        }, 500); // debounce 500ms to avoid multiple triggers
+          await this.reloadConfig(configPath);
+        }, 500);
         debounce.unref?.();
       });
       this.configWatcher.unref?.();
@@ -4893,6 +4937,74 @@ function extractFileMarkers(text: string): { cleanText: string; filePaths: strin
 
   const cleanText = text.replace(FILE_MARKER_RE, '').replace(/\n{3,}/g, '\n\n').trim();
   return { cleanText, filePaths };
+}
+
+/**
+ * Shallow diff two BridgeConfig objects, returning human-readable change descriptions.
+ */
+function diffConfigs(oldConfig: BridgeConfig, newConfig: BridgeConfig): string[] {
+  const changes: string[] = [];
+
+  // Projects added/removed
+  const oldProjects = new Set(Object.keys(oldConfig.projects));
+  const newProjects = new Set(Object.keys(newConfig.projects));
+  for (const p of newProjects) {
+    if (!oldProjects.has(p)) changes.push(`项目新增: ${p}`);
+  }
+  for (const p of oldProjects) {
+    if (!newProjects.has(p)) changes.push(`项目移除: ${p}`);
+  }
+
+  // Project-level changes
+  for (const alias of newProjects) {
+    if (!oldProjects.has(alias)) continue;
+    const oldP = oldConfig.projects[alias];
+    const newP = newConfig.projects[alias];
+    if (!oldP || !newP) continue;
+
+    const fields: Array<keyof typeof newP> = ['root', 'backend', 'persona', 'codex_model', 'claude_model', 'mention_required', 'description', 'session_scope'];
+    for (const f of fields) {
+      const ov = String(oldP[f] ?? '');
+      const nv = String(newP[f] ?? '');
+      if (ov !== nv) changes.push(`${alias}.${f}: ${ov || '(空)'} → ${nv || '(空)'}`);
+    }
+
+    // Array fields
+    const arrayFields: Array<keyof typeof newP> = ['skills', 'admin_chat_ids', 'operator_chat_ids', 'notification_chat_ids'];
+    for (const f of arrayFields) {
+      const ov = JSON.stringify(oldP[f] ?? []);
+      const nv = JSON.stringify(newP[f] ?? []);
+      if (ov !== nv) changes.push(`${alias}.${f} 变更`);
+    }
+  }
+
+  // Service-level changes
+  const serviceFields = ['default_project', 'reply_mode', 'persona', 'team_digest_enabled', 'intent_classifier_enabled'] as const;
+  for (const f of serviceFields) {
+    const ov = String((oldConfig.service as Record<string, unknown>)[f] ?? '');
+    const nv = String((newConfig.service as Record<string, unknown>)[f] ?? '');
+    if (ov !== nv) changes.push(`service.${f}: ${ov || '(空)'} → ${nv || '(空)'}`);
+  }
+
+  // Backend default
+  if (oldConfig.backend?.default !== newConfig.backend?.default) {
+    changes.push(`backend.default: ${oldConfig.backend?.default ?? 'codex'} → ${newConfig.backend?.default ?? 'codex'}`);
+  }
+
+  // Security admin changes
+  if (JSON.stringify(oldConfig.security.admin_chat_ids) !== JSON.stringify(newConfig.security.admin_chat_ids)) {
+    changes.push('security.admin_chat_ids 变更');
+  }
+
+  // Embedding provider
+  if (oldConfig.embedding.provider !== newConfig.embedding.provider) {
+    changes.push(`embedding.provider: ${oldConfig.embedding.provider} → ${newConfig.embedding.provider}`);
+  }
+  if (oldConfig.embedding.ollama_model !== newConfig.embedding.ollama_model) {
+    changes.push(`embedding.ollama_model: ${oldConfig.embedding.ollama_model} → ${newConfig.embedding.ollama_model}`);
+  }
+
+  return changes;
 }
 
 function truncateExcerpt(text: string, limit: number = 160): string {
