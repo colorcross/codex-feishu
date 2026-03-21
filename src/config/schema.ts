@@ -42,6 +42,15 @@ export const projectSchema = z.object({
   claude_max_budget_usd: z.number().positive().optional(),
   claude_allowed_tools: z.array(z.string()).optional(),
   claude_system_prompt_append: z.string().optional(),
+  codex_model: z.string().optional(),
+  codex_sandbox: sandboxSchema.optional(),
+  mcp_servers: z.array(z.object({
+    name: z.string(),
+    command: z.string(),
+    args: z.array(z.string()).default([]),
+    env: z.record(z.string(), z.string()).optional(),
+  })).default([]),
+  skills: z.array(z.string()).default([]),
   daily_token_quota: z.number().int().positive().optional(),
 });
 

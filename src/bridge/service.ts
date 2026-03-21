@@ -789,7 +789,8 @@ export class FeiqueService {
         projectConfig: backend.name === 'codex'
           ? {
               profile: input.project.profile ?? this.config.codex.default_profile,
-              sandbox: input.project.sandbox ?? this.config.codex.default_sandbox,
+              model: input.project.codex_model,
+              sandbox: input.project.codex_sandbox ?? input.project.sandbox ?? this.config.codex.default_sandbox,
               tempDir: this.resolveProjectTempDir(input.projectAlias, input.project),
               cacheDir: this.resolveProjectCacheDir(input.projectAlias, input.project),
             }
@@ -2087,6 +2088,8 @@ export class FeiqueService {
           session_operator_chat_ids: [],
           run_operator_chat_ids: [],
           config_admin_chat_ids: [],
+          mcp_servers: [],
+          skills: [],
           run_priority: 100,
           chat_rate_limit_window_seconds: 60,
           chat_rate_limit_max_runs: 20,
@@ -3500,6 +3503,14 @@ export class FeiqueService {
       } catch (error) {
         this.logger.warn({ error, projectAlias }, 'Failed to read project instructions prefix');
       }
+    }
+
+    // Project-level tools and skills
+    if (project.skills && project.skills.length > 0) {
+      prefixParts.push(`Available skills for this project: ${project.skills.join(', ')}`);
+    }
+    if (project.mcp_servers && project.mcp_servers.length > 0) {
+      prefixParts.push(`Project MCP servers: ${project.mcp_servers.map((s) => s.name).join(', ')}`);
     }
 
     return [

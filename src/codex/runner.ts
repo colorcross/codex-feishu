@@ -15,6 +15,7 @@ export interface CodexRunOptions {
   prompt: string;
   sessionId?: string;
   profile?: string;
+  model?: string;
   sandbox: SandboxMode;
   tempDir?: string;
   cacheDir?: string;
@@ -277,6 +278,9 @@ export function buildCodexArgs(options: CodexRunOptions, outputFile: string, cap
   }
   if (options.profile && capabilities.exec.supportsProfile) {
     args.push('--profile', options.profile);
+  }
+  if (options.model) {
+    args.push('--model', options.model);
   }
   args.push(options.prompt);
   return args;

@@ -15,6 +15,7 @@ export interface CodexBackendConfig {
 
 export interface CodexProjectConfig {
   profile?: string;
+  model?: string;
   sandbox?: SandboxMode;
   tempDir?: string;
   cacheDir?: string;
@@ -37,6 +38,7 @@ export class CodexBackend implements Backend {
       prompt: options.prompt,
       sessionId: options.sessionId,
       profile: options.projectConfig?.profile ?? this.config.defaultProfile,
+      model: options.projectConfig?.model,
       sandbox: options.projectConfig?.sandbox ?? this.config.defaultSandbox,
       tempDir: options.projectConfig?.tempDir,
       cacheDir: options.projectConfig?.cacheDir,
