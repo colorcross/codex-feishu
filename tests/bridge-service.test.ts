@@ -1818,7 +1818,11 @@ function buildMessage(text: string, overrides: Partial<Parameters<FeiqueService[
 }
 
 async function waitFor(assertion: () => void): Promise<void> {
-  const deadline = Date.now() + 3000;
+  // 10s deadline. Most assertions resolve within ~50ms; the longer budget
+  // accommodates the queued-execution tests that wait for the project-root
+  // queue to drain a previous run's full pipeline (audit + memory writes
+  // + run-state persistence) before the next runCodexTurn fires.
+  const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     try {
       assertion();

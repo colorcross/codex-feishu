@@ -450,7 +450,7 @@ export class FeiqueService {
           await this.handleGapsCommand(context);
           return;
         case 'prompt':
-          await this.handlePromptMessage(context, selectionKey, command.prompt, context.text);
+          await this.handlePromptMessage(context, selectionKey, command.prompt);
           return;
       }
     } catch (error) {
@@ -654,7 +654,7 @@ export class FeiqueService {
       );
       return;
     }
-    const project = this.requireProject(alias);
+    this.requireProject(alias); // throws if missing — validates the alias before switching
     const switched = await switchSharedProjectBinding(
       this.config,
       this.sessionStore,
@@ -691,7 +691,7 @@ export class FeiqueService {
         await this.handleReadOnlyFollowupCommand(context, selectionKey, followupCommand, followupPrompt);
         return;
       }
-      await this.handlePromptMessage(context, selectionKey, followupPrompt, context.text);
+      await this.handlePromptMessage(context, selectionKey, followupPrompt);
       return;
     }
     await this.sendTextReply(context.chat_id, switched.text, context.message_id, context.text);
@@ -746,10 +746,10 @@ export class FeiqueService {
         await this.handleAdminCommand(context, selectionKey, command);
         return;
       case 'prompt':
-        await this.handlePromptMessage(context, selectionKey, followupPrompt, context.text);
+        await this.handlePromptMessage(context, selectionKey, followupPrompt);
         return;
       default:
-        await this.handlePromptMessage(context, selectionKey, followupPrompt, context.text);
+        await this.handlePromptMessage(context, selectionKey, followupPrompt);
     }
   }
 
@@ -757,7 +757,6 @@ export class FeiqueService {
     context: IncomingMessageContext,
     selectionKey: string,
     rawPrompt: string,
-    originalText?: string,
   ): Promise<void> {
     const prompt = normalizeIncomingText(rawPrompt) || (context.attachments.length > 0 ? '请结合这条飞书消息附带的多媒体信息继续处理。' : '');
     if (!prompt) {
@@ -1017,7 +1016,6 @@ export class FeiqueService {
     threadId?: string,
   ): Promise<void> {
     const projectContext = await this.resolveProjectContext(context, selectionKey);
-    const sessions = await this.sessionStore.listProjectSessions(projectContext.sessionKey, projectContext.projectAlias);
     const activeSessionId = (await this.sessionStore.getConversation(projectContext.sessionKey))?.projects[projectContext.projectAlias]?.thread_id;
 
     switch (action) {
