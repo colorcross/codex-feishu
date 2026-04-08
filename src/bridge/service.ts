@@ -67,6 +67,15 @@ import {
 } from './feishu-commands.js';
 import { handleMemoryCommand as handleMemoryCommandImpl } from './memory-commands.js';
 import {
+  formatQuotedReply,
+  buildReplyTitle,
+  sanitizeUserVisibleReply,
+  stripLifecycleMetadata,
+  supportsInteractiveCardActions,
+  resolveRunLifecycleReplyMode,
+  buildRunLifecycleCard,
+} from './reply-builders.js';
+import {
   recoverRuntimeState as recoverRuntimeStateImpl,
   reloadConfig as reloadConfigImpl,
   runDigestCycle as runDigestCycleImpl,
@@ -2242,7 +2251,7 @@ export class FeiqueService {
     const session = conversation?.projects[projectAlias];
     const sessionCount = Object.keys(session?.sessions ?? {}).length;
     const isExecutableRun = activeRun ? isExecutionRunStatus(activeRun.status) : false;
-    const includeActions = this.supportsInteractiveCardActions();
+    const includeActions = supportsInteractiveCardActions(this.config);
     const actionChatId = conversation?.chat_id ?? activeRun?.chat_id ?? fallbackChatId;
     return buildStatusCard({
       title: '当前会话状态',
@@ -3203,11 +3212,11 @@ export class FeiqueService {
     }
     const bodyWithMention = mentionPrefix ? mentionPrefix + body : body;
 
-    const title = this.buildReplyTitle(this.sanitizeUserVisibleReply(body));
+    const title = buildReplyTitle(sanitizeUserVisibleReply(body));
     // Card mode uses replyToMessageId for threading — @mention tags render as
     // literal text inside card JSON, so use the clean body for cards.
-    const formattedBodyClean = this.sanitizeUserVisibleReply(this.formatQuotedReply(body, originalText));
-    const formattedBodyWithMention = this.sanitizeUserVisibleReply(this.formatQuotedReply(bodyWithMention, originalText));
+    const formattedBodyClean = sanitizeUserVisibleReply(formatQuotedReply(body, originalText));
+    const formattedBodyWithMention = sanitizeUserVisibleReply(formatQuotedReply(bodyWithMention, originalText));
     if (this.config.service.reply_mode === 'card') {
       const card = buildMessageCard({
         title,
@@ -3249,7 +3258,7 @@ export class FeiqueService {
       return response;
     }
     if (this.config.service.reply_quote_user_message && replyToMessageId) {
-      const response = await this.feishuClient.sendText(chatId, this.sanitizeUserVisibleReply(bodyWithMention), { replyToMessageId });
+      const response = await this.feishuClient.sendText(chatId, sanitizeUserVisibleReply(bodyWithMention), { replyToMessageId });
       await this.auditLog.append({
         type: 'message.replied',
         chat_id: chatId,
@@ -3287,10 +3296,10 @@ export class FeiqueService {
     replyToMessageId?: string;
     originalText?: string;
   }): Promise<FeishuMessageResponse> {
-    const lifecycleMode = this.resolveRunLifecycleReplyMode();
+    const lifecycleMode = resolveRunLifecycleReplyMode(this.config);
     const lifecycleReplyOptions = input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : undefined;
     if (lifecycleMode === 'card') {
-      const card = this.buildRunLifecycleCard({
+      const card = buildRunLifecycleCard({
         title: input.title,
         body: input.body,
         projectAlias: input.projectAlias,
@@ -3311,8 +3320,8 @@ export class FeiqueService {
       return response;
     }
     if (lifecycleMode === 'post') {
-      const postBody = this.sanitizeUserVisibleReply(this.formatQuotedReply(input.body, input.originalText));
-      const title = this.buildReplyTitle(postBody);
+      const postBody = sanitizeUserVisibleReply(formatQuotedReply(input.body, input.originalText));
+      const title = buildReplyTitle(postBody);
       const post = buildFeishuPost(title, postBody);
       const response = lifecycleReplyOptions
         ? await this.feishuClient.sendPost(input.chatId, post, lifecycleReplyOptions)
@@ -3330,7 +3339,7 @@ export class FeiqueService {
     const response = lifecycleReplyOptions
       ? await this.feishuClient.sendText(
           input.chatId,
-          this.sanitizeUserVisibleReply(this.formatQuotedReply(input.body, input.originalText)),
+          sanitizeUserVisibleReply(formatQuotedReply(input.body, input.originalText)),
           lifecycleReplyOptions,
         )
       : await this.sendTextReply(input.chatId, input.body, input.replyToMessageId, input.originalText);
@@ -3375,7 +3384,7 @@ export class FeiqueService {
     replyToMessageId?: string;
     originalText?: string;
   }): Promise<void> {
-    const lifecycleMode = this.resolveRunLifecycleReplyMode();
+    const lifecycleMode = resolveRunLifecycleReplyMode(this.config);
     const draft = this.buildInitialRunLifecycleReply(input.projectAlias, input.queued, lifecycleMode);
     try {
       const response = await this.sendRunLifecycleReply({
@@ -3398,7 +3407,7 @@ export class FeiqueService {
   private async rememberRunReplyTarget(
     runId: string,
     response: FeishuMessageResponse,
-    mode: BridgeConfig['service']['reply_mode'] = this.resolveRunLifecycleReplyMode(),
+    mode: BridgeConfig['service']['reply_mode'] = resolveRunLifecycleReplyMode(this.config),
   ): Promise<void> {
     this.runReplyTargets.set(runId, {
       messageId: response.message_id,
@@ -3529,12 +3538,12 @@ export class FeiqueService {
       return false;
     }
 
-    const sanitizedBody = this.sanitizeUserVisibleReply(input.body);
+    const sanitizedBody = sanitizeUserVisibleReply(input.body);
     if (target.mode === 'card') {
-      const includeActions = input.runStatus === 'success' && this.supportsInteractiveCardActions() && input.sessionKey !== undefined;
+      const includeActions = input.runStatus === 'success' && supportsInteractiveCardActions(this.config) && input.sessionKey !== undefined;
       await this.feishuClient.updateCard(
         target.messageId,
-        this.buildRunLifecycleCard({
+        buildRunLifecycleCard({
           title: input.title,
           body: input.body,
           projectAlias: input.projectAlias,
@@ -3569,7 +3578,7 @@ export class FeiqueService {
         }),
       );
     } else if (target.mode === 'post') {
-      const title = this.buildReplyTitle(sanitizedBody);
+      const title = buildReplyTitle(sanitizedBody);
       await this.feishuClient.updatePost(target.messageId, buildFeishuPost(title, sanitizedBody));
     } else {
       await this.feishuClient.updateText(target.messageId, sanitizedBody);
@@ -3594,84 +3603,6 @@ export class FeiqueService {
       update: true,
     });
     return true;
-  }
-
-  private formatQuotedReply(body: string, originalText?: string): string {
-    return body;
-  }
-
-  private buildReplyTitle(body: string): string {
-    const firstLine = body
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean);
-    return truncateExcerpt(firstLine ?? '飞鹊 (Feique)', 40);
-  }
-
-  private sanitizeUserVisibleReply(body: string): string {
-    return body
-      .split(/\r?\n/)
-      .filter((line) => !/^(运行|当前运行|阻塞运行|run[_ -]?id|session[_ -]?id|conversation[_ -]?key|chat[_ -]?id|tenant[_ -]?key|project[_ -]?root|pid):/i.test(line.trim()))
-      .join('\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  }
-
-  private supportsInteractiveCardActions(): boolean {
-    return this.config.feishu.transport === 'webhook';
-  }
-
-  private resolveRunLifecycleReplyMode(): BridgeConfig['service']['reply_mode'] {
-    if (this.config.service.reply_mode === 'post') {
-      return 'card';
-    }
-    return this.config.service.reply_mode;
-  }
-
-  private buildRunLifecycleCard(input: {
-    title: string;
-    body: string;
-    projectAlias: string;
-    runStatus?: string;
-    runPhase?: string;
-    cardSummary?: string;
-    includeActions?: boolean;
-    rerunPayload?: Record<string, unknown>;
-    newSessionPayload?: Record<string, unknown>;
-    statusPayload?: Record<string, unknown>;
-    cancelPayload?: Record<string, unknown>;
-  }): Record<string, unknown> {
-    const sanitizedBody = this.sanitizeUserVisibleReply(input.body);
-    if (input.includeActions) {
-      return buildStatusCard({
-        title: input.title,
-        summary: input.cardSummary ?? truncateForFeishuCard(this.stripLifecycleMetadata(sanitizedBody)),
-        projectAlias: input.projectAlias,
-        runStatus: input.runStatus,
-        runPhase: input.runPhase,
-        includeActions: true,
-        rerunPayload: input.rerunPayload,
-        newSessionPayload: input.newSessionPayload,
-        statusPayload: input.statusPayload,
-        cancelPayload: input.cancelPayload,
-      });
-    }
-    return buildMessageCard({
-      title: input.title,
-      body: this.stripLifecycleMetadata(sanitizedBody),
-      status: input.runStatus,
-      phase: input.runPhase,
-      projectAlias: input.projectAlias,
-    });
-  }
-
-  private stripLifecycleMetadata(body: string): string {
-    return body
-      .split(/\r?\n/)
-      .filter((line) => !/^(项目|处理状态|会话|当前会话|已保存会话数):/.test(line.trim()))
-      .join('\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
   }
 }
 
