@@ -67,6 +67,14 @@ import {
 } from './feishu-commands.js';
 import { handleMemoryCommand as handleMemoryCommandImpl } from './memory-commands.js';
 import {
+  recoverRuntimeState as recoverRuntimeStateImpl,
+  reloadConfig as reloadConfigImpl,
+  runDigestCycle as runDigestCycleImpl,
+  runMemoryMaintenance as runMemoryMaintenanceImpl,
+  runAuditMaintenance as runAuditMaintenanceImpl,
+  runMaintenanceCycle as runMaintenanceCycleImpl,
+} from './lifecycle.js';
+import {
   handleLearnCommand as handleLearnCommandImpl,
   handleRecallCommand as handleRecallCommandImpl,
   handleHandoffCommand as handleHandoffCommandImpl,
@@ -162,7 +170,7 @@ export class FeiqueService {
     public readonly feishuClient: FeishuClient,
     public readonly sessionStore: SessionStore,
     public readonly auditLog: AuditLog,
-    private readonly logger: Logger,
+    public readonly logger: Logger,
     public readonly metrics?: MetricsRegistry,
     private readonly idempotencyStore: IdempotencyStore = new IdempotencyStore(config.storage.dir),
     public readonly runStateStore: RunStateStore = new RunStateStore(config.storage.dir),
@@ -191,82 +199,15 @@ export class FeiqueService {
   }
 
   public async recoverRuntimeState(): Promise<RunState[]> {
-    const recovered = await this.runStateStore.recoverOrphanedRuns();
-    for (const run of recovered) {
-      await this.auditLog.append({
-        type: 'codex.run.recovered',
-        run_id: run.run_id,
-        project_alias: run.project_alias,
-        conversation_key: run.conversation_key,
-        status: run.status,
-        pid: run.pid,
-      });
-    }
-    return recovered;
+    return recoverRuntimeStateImpl(this);
   }
 
-  /**
-   * Reload config from disk with validation, diff, and admin notification.
-   *
-   * Flow:
-   * 1. Parse new config — if invalid, reject and notify admin with error
-   * 2. Diff against current config — identify what changed
-   * 3. Apply new config to memory
-   * 4. Notify admin chat(s) with change summary
-   */
   public async reloadConfig(configPath: string): Promise<{ ok: boolean; error?: string; changes?: string[] }> {
-    let newConfig: BridgeConfig;
-    try {
-      const { config } = await loadBridgeConfigFile(configPath);
-      newConfig = config;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.logger.error({ configPath, error: msg }, 'Config reload rejected — invalid config');
-
-      // Notify admin about the broken config
-      const alertText = `🔴 配置变更被拒绝\n\n文件: ${configPath}\n原因: ${msg}\n\n当前服务继续使用旧配置运行。请修正后重新保存。`;
-      for (const chatId of this.config.security.admin_chat_ids) {
-        try { await this.feishuClient.sendText(chatId, alertText); } catch { /* best-effort */ }
-      }
-
-      await this.auditLog.append({
-        type: 'config.reload.rejected',
-        config_path: configPath,
-        error: msg,
-      });
-
-      return { ok: false, error: msg };
+    const result = await reloadConfigImpl(this, configPath);
+    if (result.newConfig) {
+      this.config = result.newConfig;
     }
-
-    // Diff: what changed?
-    const changes = diffConfigs(this.config, newConfig);
-
-    if (changes.length === 0) {
-      this.logger.debug({ configPath }, 'Config file changed but no effective differences');
-      return { ok: true, changes: [] };
-    }
-
-    // Apply
-    const oldConfig = this.config;
-    this.config = newConfig;
-    this.logger.info({ configPath, changeCount: changes.length }, 'Config reloaded');
-
-    // Notify admin
-    const changeList = changes.slice(0, 15).map((c) => `  • ${c}`).join('\n');
-    const truncated = changes.length > 15 ? `\n  …及其他 ${changes.length - 15} 项变更` : '';
-    const notifyText = `✅ 配置已热加载\n\n${changes.length} 项变更:\n${changeList}${truncated}`;
-    for (const chatId of (oldConfig.security.admin_chat_ids.length > 0 ? oldConfig.security.admin_chat_ids : newConfig.security.admin_chat_ids)) {
-      try { await this.feishuClient.sendText(chatId, notifyText); } catch { /* best-effort */ }
-    }
-
-    await this.auditLog.append({
-      type: 'config.reload.applied',
-      config_path: configPath,
-      change_count: changes.length,
-      changes: changes.slice(0, 20),
-    });
-
-    return { ok: true, changes };
+    return { ok: result.ok, ...(result.error ? { error: result.error } : {}), ...(result.changes ? { changes: result.changes } : {}) };
   }
 
   /**
@@ -342,124 +283,19 @@ export class FeiqueService {
   }
 
   public async runDigestCycle(): Promise<void> {
-    const chatIds = this.config.service.team_digest_chat_ids;
-    if (chatIds.length === 0) return;
-
-    try {
-      const period = createDigestPeriod(this.config.service.team_digest_interval_hours);
-      const runs = await this.runStateStore.listRuns();
-      const memories = this.config.service.memory_enabled
-        ? await this.memoryStore.listRecentMemories({ scope: 'project', project_alias: '' }, 100)
-        : [];
-      const auditEvents = await this.auditLog.tail(500);
-
-      const digest = buildTeamDigest(runs, memories, auditEvents, period);
-
-      if (digest.summary.total_runs === 0) {
-        return; // Nothing to report
-      }
-
-      const text = formatTeamDigest(digest);
-      for (const chatId of chatIds) {
-        try {
-          await this.feishuClient.sendText(chatId, text);
-        } catch (error) {
-          this.logger.warn({ chatId, error }, 'Failed to send team digest');
-        }
-      }
-
-      await this.auditLog.append({
-        type: 'collaboration.digest.sent',
-        period_label: period.label,
-        total_runs: digest.summary.total_runs,
-        chat_ids: chatIds,
-      });
-
-      // Send per-project mini-digests to project notification chats
-      for (const projectDigest of digest.topProjects) {
-        const projectChatIds = this.config.projects[projectDigest.alias]?.notification_chat_ids ?? [];
-        if (projectChatIds.length === 0) continue;
-        const successPct = Math.round(projectDigest.success_rate * 100);
-        const miniDigestText = [
-          `📊 项目摘要 [${projectDigest.alias}] — ${period.label}`,
-          `运行: ${projectDigest.runs} | 成功率: ${successPct}%`,
-          `参与者: ${projectDigest.actors.join(', ') || '无'}`,
-        ].join('\n');
-        for (const chatId of projectChatIds) {
-          try {
-            await this.feishuClient.sendText(chatId, miniDigestText);
-          } catch { /* best-effort */ }
-        }
-      }
-    } catch (error) {
-      this.logger.error({ error }, 'Failed to generate team digest');
-    }
+    return runDigestCycleImpl(this);
   }
 
   public async runMemoryMaintenance(): Promise<number> {
-    if (!this.config.service.memory_enabled) {
-      return 0;
-    }
-    const cleaned = await this.memoryStore.cleanupExpiredMemories();
-    if (cleaned > 0) {
-      await this.auditLog.append({
-        type: 'memory.archive.expired.maintenance',
-        count: cleaned,
-      });
-      this.logger.info({ cleaned }, 'Expired memories cleaned by background maintenance');
-    }
-    return cleaned;
+    return runMemoryMaintenanceImpl(this);
   }
 
   public async runAuditMaintenance(): Promise<{ scanned: number; archived: number; removed: number }> {
-    const auditTargets = this.listManagedAuditTargets();
-    let scanned = 0;
-    let archived = 0;
-    let removed = 0;
-
-    for (const target of auditTargets) {
-      const auditLog = new AuditLog(target.stateDir, target.fileName);
-      const result = await auditLog.cleanup({
-        retentionDays: this.config.service.audit_retention_days,
-        archiveAfterDays: this.config.service.audit_archive_after_days,
-        archiveDir: target.archiveDir,
-      });
-      scanned += 1;
-      archived += result.archived;
-      removed += result.removed;
-    }
-
-    if (archived > 0 || removed > 0) {
-      await this.auditLog.append({
-        type: 'audit.cleanup.completed',
-        scanned,
-        archived,
-        removed,
-      });
-      this.logger.info({ scanned, archived, removed }, 'Audit retention cleanup completed');
-    }
-
-    return { scanned, archived, removed };
+    return runAuditMaintenanceImpl(this);
   }
 
   public async runMaintenanceCycle(): Promise<void> {
-    if (this.config.service.memory_enabled) {
-      await this.runMemoryMaintenance();
-    }
-    await this.runAuditMaintenance();
-
-    // Proactive: check for long-running tasks
-    try {
-      const activeRuns = await this.runStateStore.listRuns();
-      const longAlerts = checkLongRunningAlerts(activeRuns);
-      for (const alert of longAlerts) {
-        const text = formatAlert(alert);
-        for (const chatId of this.config.security.admin_chat_ids) {
-          try { await this.feishuClient.sendText(chatId, text); } catch { /* best-effort */ }
-        }
-        await this.notifyProjectChats(alert.project_alias, text);
-      }
-    } catch { /* best-effort */ }
+    return runMaintenanceCycleImpl(this);
   }
 
   public async handleIncomingMessage(context: IncomingMessageContext): Promise<void> {
@@ -3170,7 +3006,7 @@ export class FeiqueService {
     await auditLog.append(event);
   }
 
-  private async notifyProjectChats(projectAlias: string, text: string): Promise<void> {
+  public async notifyProjectChats(projectAlias: string, text: string): Promise<void> {
     const project = this.config.projects[projectAlias];
     const chatIds = project?.notification_chat_ids ?? [];
     for (const chatId of chatIds) {
@@ -3180,30 +3016,6 @@ export class FeiqueService {
     }
   }
 
-  private listManagedAuditTargets(): Array<{ stateDir: string; fileName: string; archiveDir?: string }> {
-    const targets: Array<{ stateDir: string; fileName: string; archiveDir?: string }> = [
-      {
-        stateDir: this.config.storage.dir,
-        fileName: 'audit.jsonl',
-        archiveDir: path.join(this.config.storage.dir, 'archive'),
-      },
-      {
-        stateDir: this.config.storage.dir,
-        fileName: 'admin-audit.jsonl',
-        archiveDir: path.join(this.config.storage.dir, 'archive'),
-      },
-    ];
-
-    for (const [alias, project] of Object.entries(this.config.projects)) {
-      targets.push({
-        stateDir: getProjectAuditDir(this.config.storage.dir, alias, project),
-        fileName: path.basename(getProjectAuditFile(this.config.storage.dir, alias, project)),
-        archiveDir: getProjectArchiveDir(this.config.storage.dir, alias),
-      });
-    }
-
-    return targets;
-  }
 
   private checkAndConsumeChatRateLimit(projectAlias: string, project: ProjectConfig, chatId: string): string | null {
     const windowMs = project.chat_rate_limit_window_seconds * 1000;
