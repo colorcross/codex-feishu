@@ -179,7 +179,7 @@ function buildWebhookConfig(): BridgeConfig {
       bridge_instructions: '',
       run_timeout_ms: 1800000,
     },
-    backend: { default: 'codex' },
+    backend: { default: 'codex', failover: false },
     claude: { bin: 'claude', default_permission_mode: 'auto', output_token_limit: 4000 },
     storage: {
       dir: '/tmp/feique-test',

@@ -35,7 +35,7 @@ import { retrieveMemoryContext, type MemoryContext } from '../memory/retrieve.js
 import { summarizeThreadTurn } from '../memory/summarize.js';
 import { CodexSessionIndex } from '../codex/session-index.js';
 import type { Backend, BackendEvent, BackendName } from '../backend/types.js';
-import { resolveProjectBackendWithOverride, resolveProjectBackendName } from '../backend/factory.js';
+import { resolveProjectBackendWithOverride, resolveProjectBackendName, resolveProjectBackendWithFailover, type FailoverInfo } from '../backend/factory.js';
 import { bindProjectAlias, createProjectAlias, removeProjectAlias, updateProjectConfig, updateStringList } from '../config/mutate.js';
 import { buildFeishuPost, truncateForFeishuCard } from '../feishu/text.js';
 import { ConfigHistoryStore, type ConfigSnapshot } from '../state/config-history-store.js';
@@ -102,6 +102,10 @@ export class FeiqueService {
   private readonly activeRuns = new Map<string, ActiveRunHandle>();
   private readonly runReplyTargets = new Map<string, RunReplyTarget>();
   private readonly chatRateWindows = new Map<string, number[]>();
+  /** Dedupe admin notifications for backend failover: one alert per (from→to) direction per process lifetime. */
+  private readonly failoverNotified = new Set<string>();
+  /** Dedupe rejected-chat notifications: one reply + one admin alert per chat_id per process lifetime. */
+  private readonly rejectedChatNotified = new Set<string>();
   private maintenanceTimer?: NodeJS.Timeout;
   private digestTimer?: NodeJS.Timeout;
   private configWatcher?: FSWatcher;
@@ -817,7 +821,16 @@ export class FeiqueService {
     };
     this.activeRuns.set(input.queueKey, activeRun);
     const sessionBackendOverride = await this.sessionStore.getProjectBackend(input.sessionKey, input.projectAlias);
-    const backend = this.resolveBackendByName(input.projectAlias, sessionBackendOverride);
+    const failoverResolution = await resolveProjectBackendWithFailover(
+      this.config,
+      input.projectAlias,
+      sessionBackendOverride,
+      this.codexSessionIndex,
+    );
+    const backend = failoverResolution.backend;
+    if (failoverResolution.failover) {
+      await this.handleBackendFailover(input.chatId, input.projectAlias, runId, failoverResolution.failover);
+    }
     const backendLabel = backend.name === 'claude' ? 'Claude' : 'Codex';
     await this.updateRunStartedReply(input.chatId, input.projectAlias, runId, backendLabel);
 
@@ -4440,6 +4453,104 @@ export class FeiqueService {
 
   private resolveBackendByName(projectAlias: string, sessionOverride?: BackendName): Backend {
     return resolveProjectBackendWithOverride(this.config, projectAlias, sessionOverride, this.codexSessionIndex);
+  }
+
+  /**
+   * Called when resolveProjectBackendWithFailover returns a non-null failover.
+   * Responsibilities:
+   *   - Log a warning with structured context
+   *   - Emit an audit event
+   *   - Notify admin chats (deduped by from→to direction for the process lifetime)
+   *   - Send a user-visible notice into the current chat so the user knows
+   *     why their run is on a different backend than expected
+   */
+  private async handleBackendFailover(
+    chatId: string,
+    projectAlias: string,
+    runId: string,
+    info: FailoverInfo,
+  ): Promise<void> {
+    this.logger.warn(
+      { projectAlias, runId, from: info.from, to: info.to, reason: info.reason },
+      'Backend failover: primary probe failed, switched to alternate',
+    );
+
+    try {
+      await this.auditLog.append({
+        type: 'backend.failover',
+        project_alias: projectAlias,
+        run_id: runId,
+        from: info.from,
+        to: info.to,
+        reason: info.reason,
+      });
+    } catch { /* best-effort */ }
+
+    const userNotice = `⚠️ ${info.from} 不可用，已临时切换到 ${info.to} 运行本次请求。\n原因: ${info.reason}`;
+    try { await this.feishuClient.sendText(chatId, userNotice); } catch { /* best-effort */ }
+
+    const dedupeKey = `${info.from}->${info.to}`;
+    if (this.failoverNotified.has(dedupeKey)) return;
+    this.failoverNotified.add(dedupeKey);
+
+    const adminChatIds = this.config.security.admin_chat_ids ?? [];
+    if (adminChatIds.length === 0) return;
+    const adminText = `🔁 Backend failover 已触发\n\n` +
+      `方向: ${info.from} → ${info.to}\n` +
+      `项目: ${projectAlias}\n` +
+      `原因: ${info.reason}\n\n` +
+      `后续同方向的切换不会重复通知，直到服务重启。`;
+    for (const adminChat of adminChatIds) {
+      try { await this.feishuClient.sendText(adminChat, adminText); } catch { /* best-effort */ }
+    }
+  }
+
+  /**
+   * Called by the transport layer when an incoming chat is rejected by the
+   * allowlist (`feishu.allowed_chat_ids` / `allowed_group_ids`).
+   *
+   * Replaces the previous "silent drop" behavior with a pairing-style
+   * experience: tell the user what their chat_id is so an admin can add it,
+   * notify admins that a new chat is knocking, and record the rejection in
+   * the audit log. Deduped per chat_id for the process lifetime so repeated
+   * attempts from the same unauthorized chat do not spam either side.
+   *
+   * This is best-effort: any send failure is swallowed. We never want a
+   * rejection flow to throw out of the transport dispatcher.
+   */
+  public async handleRejectedChat(chatId: string, chatType: 'p2p' | 'group' | 'unknown'): Promise<void> {
+    if (this.rejectedChatNotified.has(chatId)) return;
+    this.rejectedChatNotified.add(chatId);
+
+    try {
+      await this.auditLog.append({
+        type: 'chat.rejected',
+        chat_id: chatId,
+        chat_type: chatType,
+      });
+    } catch { /* best-effort */ }
+
+    const listHint = chatType === 'group'
+      ? '`feishu.allowed_group_ids`（群聊）'
+      : '`feishu.allowed_chat_ids`（私聊）';
+    const userText = `抱歉，该 chat 未被授权访问本 bot。\n` +
+      `你的 chat_id: ${chatId}\n\n` +
+      `请联系管理员并附上这个 id，请求加入 ${listHint}。`;
+    try { await this.feishuClient.sendText(chatId, userText); } catch { /* best-effort */ }
+
+    const adminChatIds = this.config.security.admin_chat_ids ?? [];
+    if (adminChatIds.length === 0) return;
+    const adminCommand = chatType === 'group'
+      ? `/admin group add ${chatId}`
+      : `/admin chat add ${chatId}`;
+    const adminText = `🔔 新 chat 请求接入\n\n` +
+      `chat_id: ${chatId}\n` +
+      `类型: ${chatType}\n\n` +
+      `如需授权，运行:\n${adminCommand}\n\n` +
+      `后续来自同一 chat 的请求不会重复通知，直到服务重启。`;
+    for (const adminChat of adminChatIds) {
+      try { await this.feishuClient.sendText(adminChat, adminText); } catch { /* best-effort */ }
+    }
   }
 
   private async enforceSessionHistoryLimit(conversationKey: string, projectAlias: string): Promise<void> {

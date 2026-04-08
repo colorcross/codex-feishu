@@ -14,6 +14,7 @@ export const claudePermissionModeSchema = z.enum(['acceptEdits', 'bypassPermissi
 export const projectSchema = z.object({
   root: z.string(),
   backend: backendNameSchema.optional(),
+  failover: z.boolean().optional(),
   profile: z.string().optional(),
   sandbox: sandboxSchema.optional(),
   session_scope: sessionScopeSchema.default('chat'),
@@ -216,9 +217,10 @@ export const bridgeConfigSchema = z.object({
   backend: z
     .object({
       default: backendNameSchema.default('codex'),
+      failover: z.boolean().default(true),
     })
     .optional()
-    .default({ default: 'codex' }),
+    .default({ default: 'codex', failover: true }),
   claude: z
     .object({
       bin: z.string().default('claude'),
