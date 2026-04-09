@@ -1,4 +1,4 @@
-# 飞鹊 (Feique) v1.4.0
+# 飞鹊 (Feique) v1.5.0
 
 <div align="center">
 
@@ -33,7 +33,7 @@
 | **记忆系统 (Memory System)** | 支持项目记忆与群共享记忆，SQLite + FTS5 检索，可配置 TTL、置顶策略和后台定时清理。 |
 | **项目隔离 (Project Isolation)** | 下载、临时文件、缓存和项目审计默认落到 `state/projects/<alias>/...`，也可按项目单独指定。 |
 | **可观测性 (Observability)** | 内置 `/healthz`、`/readyz`、`/metrics`，支持 Prometheus / Alertmanager / Grafana，并补齐启动告警、运行链路日志和审计。 |
-| **多后端支持 (Multi-Backend)** | 同一桥接器可同时管理 Codex 和 Claude Code 后端，通过 `[backend]` 配置全局默认或按项目覆盖。Claude 后端支持 `--model`、`--permission-mode`、`--max-budget-usd` 等高级选项。**v1.4 新增启动级 failover**：默认 backend 的 CLI 不可用时自动临时切到另一个 backend 跑当前请求。 |
+| **多后端支持 (Multi-Backend)** | **v1.5 支持三个后端**：Codex、Claude Code、Qwen Code。通过 `[backend]` 配置全局默认或按项目覆盖。Claude 支持 `--model`/`--permission-mode`/`--max-budget-usd`；Qwen 支持 `--model`/`--approval-mode`（plan\|default\|auto-edit\|yolo）。**启动级 failover + 可配置 fallback 链**：主 backend CLI 不可用时按 `backend.fallback` 列表依次降级。**Backend registry 可扩展**：新增第四个后端只需新增一个文件 + 一个 `registerBackend()` 调用。 |
 | **Pairing UX (v1.4)** | 陌生 chat 首次 @ bot 时返回友好提示（附自己的 chat_id 和申请指引），同时一次性通知 admin，不再静默丢包。 |
 | **团队协作态势 (Team Awareness)** | `/team` 实时查看谁在用 AI 做什么，自动冲突预警。 |
 | **知识回路 (Knowledge Loop)** | `/learn` `/recall` 团队知识沉淀与语义检索，AI 自动提取。 |

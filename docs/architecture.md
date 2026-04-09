@@ -15,13 +15,43 @@
 - 解析飞书文本命令
 - 选择项目 alias
 - 读取/更新会话状态
-- 根据当前后端（Codex 或 Claude Code）构造桥接 prompt
+- 根据当前后端（Codex / Claude Code / Qwen Code）构造桥接 prompt
 - 调用对应的 Backend Runner
 - 把结果回发到飞书
 
 后端选择优先级：`/backend` 会话级覆盖 > `project.backend` > `backend.default`（默认 `codex`）。
 
 **启动级 failover（v1.4+）**：每次 run 开始前会对候选 backend 的 CLI 做一次轻量级探测（`<bin> --version`，3s timeout，60s 缓存）。如果主 backend 探测失败（二进制缺失 / PATH 问题 / `pre_exec` 失败等）且另一个 backend 探测成功，会自动切换到它跑当前这一 run，并在飞书回复头部标注；admin 收到一次性通知。运行时抛错**不**触发 failover —— 避免白烧 token。可通过 `backend.failover = false`（全局）或 `projects.<alias>.failover = false`（单项目）关闭。
+
+**Fallback 链（v1.5+）**：v1.4 只做"主 → 另一个"两两 failover，v1.5 改成"主 → 有序候选列表"。链解析优先级：
+
+1. `projects.<alias>.fallback`（per-project override）
+2. `backend.fallback`（全局）
+3. registry 提供的默认链（`codex` → `['claude', 'qwen']`，`claude` → `['codex', 'qwen']`，`qwen` → `['claude', 'codex']`）
+4. 所有其它已注册后端（注册顺序）
+
+链里未知的 backend 名会被安全跳过，主 backend 永远不会出现在链里，重复项会自动去重。
+
+### Backend registry（v1.5+）
+
+添加新后端是**纯增量操作**。系统用一个运行时 `Map<string, BackendDefinition>`（`src/backend/registry.ts`）管理所有后端。添加第四个后端的完整流程：
+
+```ts
+// src/backend/my-backend.ts
+import { registerBackend, type BackendDefinition } from './registry.js';
+
+class MyBackend implements Backend { /* ... */ }
+
+export const myBackendDefinition: BackendDefinition = {
+  name: 'my-backend',
+  create(config, deps) { return new MyBackend(/* ... */); },
+  probeSpec(config) { return { bin: config['my-backend']?.bin ?? 'my-backend' }; },
+  defaultFallback: ['codex', 'claude'],
+};
+registerBackend(myBackendDefinition);
+```
+
+然后在 `src/backend/factory.ts` 顶部加一行 `import './my-backend.js'` 触发模块加载。`BackendName` 类型是 `string`，配置 schema 的 `backendNameSchema` 也是 `z.string()`，不需要改 union 类型。`/backend` 聊天命令会自动接受新 backend 名（它走 registry 查询而不是硬编码白名单）。
 
 ### Session Store
 

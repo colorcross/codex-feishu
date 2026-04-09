@@ -85,9 +85,9 @@
         <div class="announcement fade-in">
           <span class="announcement-badge">
             <span class="pulse-dot" aria-hidden="true"></span>
-            v1.4.0 released
+            v1.5.0 released
           </span>
-          <span class="announcement-text">Backend startup failover + pairing UX for unknown chats + major service.ts split refactor (-46%)</span>
+          <span class="announcement-text">Qwen Code joins as third backend + extensible backend registry + configurable fallback chain</span>
           <a href="https://github.com/colorcross/feique/releases" class="announcement-link">View Release →</a>
         </div>
 
@@ -422,7 +422,7 @@ another chat. Queued with 1 task ahead.
               </div>
               <span class="cap-label">Multi-Backend</span>
               <h3 class="cap-title"><code>/backend codex|claude</code> — session-level backend switching</h3>
-              <p class="cap-desc">Switch the active backend for the current project at any time with <code>/backend</code> or natural language ("switch backend to claude"). Priority chain: session override → project <code>backend</code> config → global <code>backend.default</code>. Project routing, session continuity, queuing, and access control apply uniformly to both backends. <strong>v1.4 adds startup-level failover</strong>: when the primary backend's CLI is unavailable (missing binary / broken PATH), runs auto-switch to the alternate backend with a one-shot admin notification.</p>
+              <p class="cap-desc">Switch the active backend for the current project at any time with <code>/backend</code> or natural language ("switch backend to qwen"). <strong>v1.5 ships three backends</strong>: Codex, Claude Code, and Qwen Code. Project routing, session continuity, queuing, and access control apply uniformly across all backends. <strong>Startup-level failover + configurable fallback chain</strong>: when the primary CLI is unavailable, runs walk through <code>backend.fallback</code> until one probes ok. <strong>Extensible backend registry</strong>: adding a fourth backend is one file plus one <code>registerBackend()</code> call — no union types or switch statements to edit.</p>
             </div>
             <div class="cap-card">
               <div class="cap-icon cap-icon-teal" aria-hidden="true">

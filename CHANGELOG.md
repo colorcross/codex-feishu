@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.5.0] — 2026-04-09
+
+### 新功能
+
+#### 🎉 Qwen Code CLI 成为第三个后端
+继 Codex 和 Claude Code 之后，feique 现在原生支持 **Qwen Code CLI**（阿里云通义千问代码版 CLI，v0.14.1+）。
+
+- **Binary**: `qwen`（配置 `[qwen].bin` 覆盖）
+- **调用**: 内部走 `qwen -p "<prompt>" --output-format stream-json`
+- **审批模式**: `plan` / `default` / `auto-edit` / `yolo`（对应 claude 的 permission-mode）
+- **会话续接**: 支持 `--resume <session_id>`，并能扫描 `~/.qwen/projects/<slug>/chats/*.jsonl` 自动发现和接管历史会话
+- **配置**: 新增 `[qwen]` section，per-project 字段 `qwen_approval_mode` / `qwen_model` / `qwen_allowed_tools` / `qwen_system_prompt_append`
+- **命令**: `/backend qwen` 切换当前项目到 Qwen 后端，自然语言也支持"用 qwen" / "切到 qwen" / "switch to qwen"
+
+#### ♻️ Backend 注册表（可扩展第四个、第五个后端）
+重构后端系统：从硬编码的 `switch (name)` 改为运行时 `Map<string, BackendDefinition>`。**添加新后端现在是纯增量操作**：
+
+1. 在 `src/backend/` 新建一个文件实现 `Backend` 接口
+2. 导出一个 `BackendDefinition` 并调用 `registerBackend(...)`
+3. 在 `src/backend/factory.ts` 加一行 `import './<name>.js'`
+
+就完事了。`BackendName` 类型从字面联合（`'codex' | 'claude'`）放宽为 `string`；`backendNameSchema` 改为 `z.string()`；运行时验证通过 `requireBackendDefinition` 在 factory 边界完成。`/backend` 命令的合法值校验现在走 registry 查询而不是硬编码。
+
+#### 🔀 可配置 failover fallback chain
+failover 机制从"2 选 1"升级为"主 → 多级 fallback 链"。现在 3 个后端都挂的话会依次试过所有候选。
+
+- **全局配置**: `backend.fallback = ["claude", "qwen"]`
+- **per-project 覆盖**: `projects.<alias>.fallback = ["qwen"]`
+- **默认 fallback 链**（未显式配置时，由 registry 提供）:
+  - `codex` → `['claude', 'qwen']`
+  - `claude` → `['codex', 'qwen']`
+  - `qwen` → `['claude', 'codex']`
+
+链里的未知 backend 名会被**安全跳过**（不抛错），primary 不会出现在链里（自动去重），列表顺序即探测顺序。v1.4 的 2-backend failover 行为是新语义的特例，完全向后兼容。
+
+### 测试套件
+- 新增 `tests/backend-qwen.test.ts`（9 cases）：registry 自注册、probe spec 构造、session 扫描（exact-root / no-match / findSessionById / missing home / 破损 header）
+- `tests/backend-factory-failover.test.ts` 扩展（7 → 14 cases）：3-backend fallback 链所有分支 + registry 集成健康检查
+- 全量测试: **545/545 passing**（v1.4.0 是 529/529）
+
+### 内部改动
+- `src/backend/registry.ts`（新文件）: `BackendDefinition` 接口 + `Map` 注册表 + `registerBackend` / `getBackendDefinition` / `requireBackendDefinition` / `listBackendNames`
+- `src/backend/codex.ts` / `src/backend/claude.ts` / `src/backend/qwen.ts`: 每个文件在模块末尾导出 `*BackendDefinition` 并调用 `registerBackend(...)` 自注册
+- `src/backend/factory.ts`: `createBackendByName` 从 switch 改为 `requireBackendDefinition` 查表；`otherBackend(name)` 删除；新增 `resolveFallbackChain(config, projectAlias, primary)` 按 project/global/registry default/all-others 四级优先级解析 fallback 链
+- `src/backend/probe.ts`: `extractProbeSpec` 删除（每个 backend definition 自带 `probeSpec(config)`）
+- `src/bridge/intent-classifier.ts`: `backend` 类型从 `'claude' | 'codex'` 放宽为 `string`
+- `src/bridge/run-pipeline.ts`: executePrompt 的 `projectConfig` 构造加 qwen 分支
+- `src/bridge/service.ts`: `/backend` 命令校验走 registry；backend label 加 Qwen
+
 ## [1.4.0] — 2026-04-09
 
 ### 新功能
