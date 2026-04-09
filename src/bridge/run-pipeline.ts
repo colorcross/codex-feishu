@@ -172,7 +172,7 @@ export async function executePrompt(host: PipelineHost, input: ExecutePromptInpu
   if (failoverResolution.failover) {
     await host.handleBackendFailover(input.chatId, input.projectAlias, runId, failoverResolution.failover);
   }
-  const backendLabel = backend.name === 'claude' ? 'Claude' : 'Codex';
+  const backendLabel = backend.name === 'claude' ? 'Claude' : backend.name === 'qwen' ? 'Qwen' : 'Codex';
   await host.updateRunStartedReply(input.chatId, input.projectAlias, runId, backendLabel);
 
   await host.runStateStore.upsertRun(runId, {
@@ -223,14 +223,18 @@ export async function executePrompt(host: PipelineHost, input: ExecutePromptInpu
   try {
     const outputTokenLimit = backend.name === 'claude'
       ? (host.config.claude?.output_token_limit ?? host.config.codex.output_token_limit)
-      : host.config.codex.output_token_limit;
+      : backend.name === 'qwen'
+        ? (host.config.qwen?.output_token_limit ?? host.config.codex.output_token_limit)
+        : host.config.codex.output_token_limit;
     const result = await backend.run({
       workdir: input.project.root,
       prompt: bridgePrompt,
       sessionId: currentSession?.thread_id,
       timeoutMs: backend.name === 'claude'
         ? (host.config.claude?.run_timeout_ms ?? host.config.codex.run_timeout_ms)
-        : host.config.codex.run_timeout_ms,
+        : backend.name === 'qwen'
+          ? (host.config.qwen?.run_timeout_ms ?? host.config.codex.run_timeout_ms)
+          : host.config.codex.run_timeout_ms,
       signal: activeRun.controller.signal,
       logger: host.logger,
       projectConfig: backend.name === 'codex'
@@ -241,13 +245,20 @@ export async function executePrompt(host: PipelineHost, input: ExecutePromptInpu
             tempDir: host.resolveProjectTempDir(input.projectAlias, input.project),
             cacheDir: host.resolveProjectCacheDir(input.projectAlias, input.project),
           }
-        : {
-            permissionMode: input.project.claude_permission_mode ?? host.config.claude?.default_permission_mode,
-            model: input.project.claude_model ?? host.config.claude?.default_model,
-            maxBudgetUsd: input.project.claude_max_budget_usd ?? host.config.claude?.max_budget_usd,
-            allowedTools: input.project.claude_allowed_tools ?? host.config.claude?.allowed_tools,
-            systemPromptAppend: input.project.claude_system_prompt_append ?? host.config.claude?.system_prompt_append,
-          },
+        : backend.name === 'qwen'
+          ? {
+              approvalMode: input.project.qwen_approval_mode ?? host.config.qwen?.default_approval_mode,
+              model: input.project.qwen_model ?? host.config.qwen?.default_model,
+              allowedTools: input.project.qwen_allowed_tools ?? host.config.qwen?.allowed_tools,
+              systemPromptAppend: input.project.qwen_system_prompt_append ?? host.config.qwen?.system_prompt_append,
+            }
+          : {
+              permissionMode: input.project.claude_permission_mode ?? host.config.claude?.default_permission_mode,
+              model: input.project.claude_model ?? host.config.claude?.default_model,
+              maxBudgetUsd: input.project.claude_max_budget_usd ?? host.config.claude?.max_budget_usd,
+              allowedTools: input.project.claude_allowed_tools ?? host.config.claude?.allowed_tools,
+              systemPromptAppend: input.project.claude_system_prompt_append ?? host.config.claude?.system_prompt_append,
+            },
       onSpawn: async (pid) => {
         activeRun.pid = pid;
         await host.runStateStore.upsertRun(runId, {

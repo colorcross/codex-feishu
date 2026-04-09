@@ -85,6 +85,7 @@ describe('doctor', () => {
       },
       backend: { default: 'codex', failover: false },
       claude: { bin: 'claude', default_permission_mode: 'auto', output_token_limit: 4000 },
+    qwen: { bin: 'qwen', default_approval_mode: 'default', output_token_limit: 4000 },
       storage: {
         dir: path.join(workspace, 'state'),
       },
@@ -255,6 +256,7 @@ describe('doctor', () => {
       },
       backend: { default: 'codex', failover: false },
       claude: { bin: 'claude', default_permission_mode: 'auto', output_token_limit: 4000 },
+    qwen: { bin: 'qwen', default_approval_mode: 'default', output_token_limit: 4000 },
       storage: { dir: path.join(workspace, 'state') },
       security: {
         allowed_project_roots: [workspace],

@@ -137,7 +137,7 @@ export function buildHelpText(): string {
     '/projects 查看可用项目',
     '/project <名称> 切换项目',
     '/status 查看当前状态',
-    '/backend codex|claude 切换后端',
+    '/backend codex|claude|qwen 切换后端',
     '/team 查看团队成员活动',
     '/learn <内容> 记录团队知识',
     '/recall <关键词> 检索知识',
@@ -168,6 +168,7 @@ export function buildFullHelpText(): string {
     '/backend 查看当前项目的活跃后端',
     '/backend codex 切换当前项目到 Codex 后端',
     '/backend claude 切换当前项目到 Claude Code 后端',
+    '/backend qwen 切换当前项目到 Qwen Code 后端',
     '',
     '会话管理',
     '/session list 列出当前项目保存过的会话',
@@ -572,17 +573,17 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
 
   // ── /backend: 后端切换（必须在项目切换之前，否则 "切到 claude" 会被误判为切换项目）──
   // Pattern 1: 带"后端"关键词 — "切换后端到 claude" / "后端换成 codex"
-  const backendWithKeyword = normalized.match(/^(?:切换(?:到|为)?|使用|换(?:到|成)?|改(?:到|为|用)?)?\s*(?:后端(?:(?:切换)?(?:到|为)?)?)\s*(codex|claude)\s*(?:后端)?$/i);
+  const backendWithKeyword = normalized.match(/^(?:切换(?:到|为)?|使用|换(?:到|成)?|改(?:到|为|用)?)?\s*(?:后端(?:(?:切换)?(?:到|为)?)?)\s*(codex|claude|qwen)\s*(?:后端)?$/i);
   if (backendWithKeyword) {
     return { kind: 'backend', name: backendWithKeyword[1]!.toLowerCase() };
   }
   // Pattern 2: 不带"后端"— "用 claude" / "换成 codex" / "切到 claude" / "改用 codex"
-  const backendDirect = normalized.match(/^(?:用|使用|换(?:成|到)?|切(?:换?(?:到|成)?)?|改(?:用|成|到)?|转(?:到|成)?)\s*(codex|claude)(?:\s*(?:吧|看看|试试|帮我|来))?$/i);
+  const backendDirect = normalized.match(/^(?:用|使用|换(?:成|到)?|切(?:换?(?:到|成)?)?|改(?:用|成|到)?|转(?:到|成)?)\s*(codex|claude|qwen)(?:\s*(?:吧|看看|试试|帮我|来))?$/i);
   if (backendDirect) {
     return { kind: 'backend', name: backendDirect[1]!.toLowerCase() };
   }
   // Pattern 3: "codex/claude + 动词" — "claude 来" / "codex 帮我"
-  const backendNameFirst = normalized.match(/^(codex|claude)\s*(?:来(?:吧)?|帮我|试试|处理|干活|上)$/i);
+  const backendNameFirst = normalized.match(/^(codex|claude|qwen)\s*(?:来(?:吧)?|帮我|试试|处理|干活|上)$/i);
   if (backendNameFirst) {
     return { kind: 'backend', name: backendNameFirst[1]!.toLowerCase() };
   }
@@ -595,12 +596,12 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
     return { kind: 'backend' };
   }
   // Pattern 6: English — "switch to claude" / "use codex" / "change to claude"
-  const backendEnglish = normalized.match(/^(?:switch(?:\s+backend)?(?:\s+to)?|use|change(?:\s+backend)?(?:\s+to)?|backend)\s+(codex|claude)$/i);
+  const backendEnglish = normalized.match(/^(?:switch(?:\s+backend)?(?:\s+to)?|use|change(?:\s+backend)?(?:\s+to)?|backend)\s+(codex|claude|qwen)$/i);
   if (backendEnglish) {
     return { kind: 'backend', name: backendEnglish[1]!.toLowerCase() };
   }
   // Pattern 7: English name-first — "claude please" / "codex go"
-  const backendEnglishNameFirst = normalized.match(/^(codex|claude)\s+(?:please|go|now|backend)$/i);
+  const backendEnglishNameFirst = normalized.match(/^(codex|claude|qwen)\s+(?:please|go|now|backend)$/i);
   if (backendEnglishNameFirst) {
     return { kind: 'backend', name: backendEnglishNameFirst[1]!.toLowerCase() };
   }

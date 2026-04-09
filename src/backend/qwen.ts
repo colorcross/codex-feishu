@@ -7,61 +7,92 @@ import type { Logger } from '../logging.js';
 import type { BackendDefinition } from './registry.js';
 import { registerBackend } from './registry.js';
 
-export type ClaudePermissionMode = 'acceptEdits' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan' | 'auto';
+/**
+ * Qwen Code CLI backend. Near-identical event + arg surface to
+ * ClaudeBackend — both CLIs speak `--output-format stream-json` with
+ * `system/init → assistant → result` event frames. The main differences:
+ *
+ *   1. `--approval-mode plan|default|auto-edit|yolo` instead of
+ *      `--permission-mode ...`
+ *   2. Session storage layout: qwen writes JSONL chats under
+ *      `~/.qwen/projects/<encoded-cwd>/chats/<uuid>.jsonl`. The first
+ *      line of each chat is a `type: system` frame with `cwd`, `version`,
+ *      and `timestamp`, which we parse to drive session adoption.
+ *   3. No `--max-budget-usd` equivalent.
+ *
+ * Qwen Code version validated against: 0.14.1.
+ */
 
-export interface ClaudeBackendConfig {
+export type QwenApprovalMode = 'plan' | 'default' | 'auto-edit' | 'yolo';
+
+export interface QwenBackendConfig {
   bin: string;
   shell?: string;
   preExec?: string;
-  defaultPermissionMode: ClaudePermissionMode;
+  defaultApprovalMode: QwenApprovalMode;
   defaultModel?: string;
-  maxBudgetUsd?: number;
   allowedTools?: string[];
   systemPromptAppend?: string;
   runTimeoutMs: number;
 }
 
-export interface ClaudeProjectConfig {
-  permissionMode?: ClaudePermissionMode;
+export interface QwenProjectConfig {
+  approvalMode?: QwenApprovalMode;
   model?: string;
-  maxBudgetUsd?: number;
   allowedTools?: string[];
   systemPromptAppend?: string;
 }
 
-interface ClaudeStreamEvent {
+interface QwenStreamEvent {
   type?: string;
   subtype?: string;
   session_id?: string;
   result?: string;
-  cost_usd?: number;
+  is_error?: boolean;
   duration_ms?: number;
   num_turns?: number;
-  total_input_tokens?: number;
-  total_output_tokens?: number;
   message?: {
     id?: string;
-    content?: Array<{ type?: string; text?: string }>;
+    content?: Array<{ type?: string; text?: string; thinking?: string }>;
     usage?: { input_tokens?: number; output_tokens?: number };
+  };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    total_tokens?: number;
   };
   [key: string]: unknown;
 }
 
-export class ClaudeBackend implements Backend {
-  public readonly name = 'claude' as const;
+/**
+ * First-line header of a qwen JSONL chat. We only read enough fields
+ * to drive session adoption.
+ */
+interface QwenChatHeader {
+  uuid?: string;
+  sessionId?: string;
+  timestamp?: string;
+  cwd?: string;
+  version?: string;
+  type?: string;
+}
+
+export class QwenBackend implements Backend {
+  public readonly name = 'qwen' as const;
 
   public constructor(
-    private readonly config: ClaudeBackendConfig,
-    private readonly claudeHomeDir: string = resolveClaudeHomeDir(),
+    private readonly config: QwenBackendConfig,
+    private readonly qwenHomeDir: string = resolveQwenHomeDir(),
   ) {}
 
-  public async run(options: BackendRunOptions & { projectConfig?: ClaudeProjectConfig }): Promise<BackendRunResult> {
+  public async run(options: BackendRunOptions & { projectConfig?: QwenProjectConfig }): Promise<BackendRunResult> {
     const args = this.buildArgs(options);
     const spawnSpec = this.buildSpawnSpec(args);
 
     options.logger.info(
       { command: spawnSpec.command, args: spawnSpec.args, workdir: options.workdir },
-      'Starting Claude turn',
+      'Starting Qwen turn',
     );
 
     return await new Promise<BackendRunResult>((resolve, reject) => {
@@ -106,7 +137,7 @@ export class ClaudeBackend implements Backend {
 
       const abortRun = (reason: unknown) => {
         if (processRef.killed) return;
-        const message = typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : 'Claude run aborted';
+        const message = typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : 'Qwen run aborted';
         const error = new Error(message);
         error.name = 'AbortError';
         processRef.kill('SIGTERM');
@@ -118,13 +149,13 @@ export class ClaudeBackend implements Backend {
 
       if (options.timeoutMs && options.timeoutMs > 0) {
         timeoutHandle = setTimeout(() => {
-          abortRun(`Claude timed out after ${options.timeoutMs}ms`);
+          abortRun(`Qwen timed out after ${options.timeoutMs}ms`);
         }, options.timeoutMs);
         timeoutHandle.unref();
       }
 
       if (options.signal) {
-        const onAbort = () => abortRun(options.signal?.reason ?? 'Claude run aborted');
+        const onAbort = () => abortRun(options.signal?.reason ?? 'Qwen run aborted');
         if (options.signal.aborted) {
           onAbort();
           return;
@@ -147,23 +178,25 @@ export class ClaudeBackend implements Backend {
           if (!trimmed.startsWith('{')) continue;
 
           try {
-            const event = JSON.parse(trimmed) as ClaudeStreamEvent;
+            const event = JSON.parse(trimmed) as QwenStreamEvent;
 
-            // Extract session_id from result event
-            if (event.type === 'result' && event.session_id) {
+            // Session id is emitted on both init and result events.
+            if (event.session_id) {
               sessionId = event.session_id;
             }
 
-            // Extract final text and token usage from result event
-            if (event.type === 'result' && typeof event.result === 'string') {
-              finalMessage = event.result;
-            }
+            // Extract final text + usage from result event.
             if (event.type === 'result') {
-              if (typeof event.total_input_tokens === 'number') inputTokens = event.total_input_tokens;
-              if (typeof event.total_output_tokens === 'number') outputTokens = event.total_output_tokens;
+              if (typeof event.result === 'string') {
+                finalMessage = event.result;
+              }
+              if (event.usage) {
+                if (typeof event.usage.input_tokens === 'number') inputTokens = event.usage.input_tokens;
+                if (typeof event.usage.output_tokens === 'number') outputTokens = event.usage.output_tokens;
+              }
             }
 
-            // Extract assistant text from assistant messages
+            // Fall back to assistant text content if result event never arrives.
             if (event.type === 'assistant' && event.message?.content) {
               const texts = event.message.content
                 .filter(c => c.type === 'text' && typeof c.text === 'string')
@@ -174,7 +207,6 @@ export class ClaudeBackend implements Backend {
               }
             }
 
-            // Forward as unified BackendEvent
             const backendEvent: BackendEvent = {
               type: event.type,
               session_id: event.session_id ?? sessionId,
@@ -182,7 +214,7 @@ export class ClaudeBackend implements Backend {
             };
             await options.onEvent?.(backendEvent);
           } catch {
-            options.logger.debug({ line }, 'Ignoring unparsable Claude line');
+            options.logger.debug({ line }, 'Ignoring unparsable Qwen line');
           }
         }
       });
@@ -199,7 +231,7 @@ export class ClaudeBackend implements Backend {
         if (settled) return;
 
         if ((exitCode ?? 1) !== 0 && !finalMessage) {
-          finishReject(new Error(`Claude exited with code ${exitCode ?? 1}: ${stderr.trim() || 'no stderr output'}`));
+          finishReject(new Error(`Qwen exited with code ${exitCode ?? 1}: ${stderr.trim() || 'no stderr output'}`));
           return;
         }
 
@@ -217,7 +249,7 @@ export class ClaudeBackend implements Backend {
 
   public summarizeEvent(event: BackendEvent): string | null {
     if (event.type === 'error' && typeof event.message === 'string') {
-      return `Claude 错误：${event.message}`;
+      return `Qwen 错误：${event.message}`;
     }
     return null;
   }
@@ -257,26 +289,21 @@ export class ClaudeBackend implements Backend {
     return { ...candidate, matchKind: match.kind, matchScore: match.score };
   }
 
-  private buildArgs(options: BackendRunOptions & { projectConfig?: ClaudeProjectConfig }): string[] {
-    const args: string[] = ['-p', '--verbose'];
+  private buildArgs(options: BackendRunOptions & { projectConfig?: QwenProjectConfig }): string[] {
+    const args: string[] = ['-p'];
     args.push('--output-format', 'stream-json');
 
-    const permissionMode = options.projectConfig?.permissionMode ?? this.config.defaultPermissionMode;
-    args.push('--permission-mode', permissionMode);
+    const approvalMode = options.projectConfig?.approvalMode ?? this.config.defaultApprovalMode;
+    args.push('--approval-mode', approvalMode);
 
     const model = options.projectConfig?.model ?? this.config.defaultModel;
     if (model) {
       args.push('--model', model);
     }
 
-    const maxBudget = options.projectConfig?.maxBudgetUsd ?? this.config.maxBudgetUsd;
-    if (maxBudget !== undefined && maxBudget > 0) {
-      args.push('--max-budget-usd', String(maxBudget));
-    }
-
     const allowedTools = options.projectConfig?.allowedTools ?? this.config.allowedTools;
     if (allowedTools && allowedTools.length > 0) {
-      args.push('--allowedTools', ...allowedTools);
+      args.push('--allowed-tools', ...allowedTools);
     }
 
     const systemPromptAppend = options.projectConfig?.systemPromptAppend ?? this.config.systemPromptAppend;
@@ -292,67 +319,75 @@ export class ClaudeBackend implements Backend {
     return args;
   }
 
-  private buildSpawnSpec(claudeArgs: string[]): { command: string; args: string[] } {
+  private buildSpawnSpec(qwenArgs: string[]): { command: string; args: string[] } {
     if (!this.config.preExec) {
-      return { command: this.config.bin, args: claudeArgs };
+      return { command: this.config.bin, args: qwenArgs };
     }
     const shell = this.config.shell ?? process.env.SHELL ?? '/bin/zsh';
-    const chainedCommand = `${this.config.preExec} && ${quoteShellCommand([this.config.bin, ...claudeArgs])}`;
+    const chainedCommand = `${this.config.preExec} && ${quoteShellCommand([this.config.bin, ...qwenArgs])}`;
     return { command: shell, args: ['-ic', chainedCommand] };
   }
 
+  /**
+   * Walk `~/.qwen/projects/<slug>/chats/*.jsonl` and parse the first
+   * line of each file to extract `sessionId` + `cwd` + `timestamp`.
+   *
+   * Qwen encodes the project directory as the slug (e.g. `/Users/dh` →
+   * `-Users-dh`). We don't depend on that mapping — we walk every slug
+   * and match by parsed `cwd`.
+   */
   private async scanSessions(): Promise<IndexedSession[]> {
-    const sessionsDir = path.join(this.claudeHomeDir, 'sessions');
+    const projectsDir = path.join(this.qwenHomeDir, 'projects');
     const sessions = new Map<string, IndexedSession>();
 
-    let entries: string[];
+    let slugEntries: string[];
     try {
-      entries = await fs.readdir(sessionsDir);
+      slugEntries = await fs.readdir(projectsDir);
     } catch {
       return [];
     }
 
-    // Claude Code stores sessions as flat JSON files: ~/.claude/sessions/<PID>.json
-    // Format: {"pid":12673,"sessionId":"uuid","cwd":"/path","startedAt":1774239981398}
-    for (const entry of entries) {
-      if (!entry.endsWith('.json')) continue;
-      const filePath = path.join(sessionsDir, entry);
-      const stat = await fs.stat(filePath).catch(() => null);
-      if (!stat?.isFile()) continue;
+    for (const slug of slugEntries) {
+      const chatsDir = path.join(projectsDir, slug, 'chats');
+      const chatFiles = await fs.readdir(chatsDir).catch(() => [] as string[]);
 
-      try {
-        const content = await fs.readFile(filePath, 'utf8');
-        const parsed = JSON.parse(content) as {
-          pid?: number;
-          sessionId?: string;
-          cwd?: string;
-          startedAt?: number;
-        };
+      for (const chatFile of chatFiles) {
+        if (!chatFile.endsWith('.jsonl')) continue;
+        const filePath = path.join(chatsDir, chatFile);
+        const stat = await fs.stat(filePath).catch(() => null);
+        if (!stat?.isFile()) continue;
 
-        const sessionId = parsed.sessionId;
-        const cwd = parsed.cwd;
-        if (!sessionId || !cwd) continue;
+        try {
+          const content = await fs.readFile(filePath, 'utf8');
+          const firstLine = content.split(/\r?\n/, 1)[0]?.trim();
+          if (!firstLine) continue;
 
-        const startedAt = typeof parsed.startedAt === 'number' ? parsed.startedAt : undefined;
-        const createdAt = startedAt ? new Date(startedAt).toISOString() : undefined;
-        const updatedAt = new Date(
-          startedAt ? Math.max(startedAt, stat.mtimeMs) : stat.mtimeMs,
-        ).toISOString();
+          const parsed = JSON.parse(firstLine) as QwenChatHeader;
+          const sessionId = parsed.sessionId;
+          const cwd = parsed.cwd;
+          if (!sessionId || !cwd) continue;
 
-        const existing = sessions.get(sessionId);
-        if (!existing || existing.updatedAt < updatedAt) {
-          sessions.set(sessionId, {
-            sessionId,
-            cwd,
-            updatedAt,
-            createdAt,
-            filePath,
-            source: 'sessions',
-            backend: 'claude',
-          });
+          const createdAt = parsed.timestamp;
+          const updatedAt = new Date(stat.mtimeMs).toISOString();
+
+          const existing = sessions.get(sessionId);
+          if (!existing || existing.updatedAt < updatedAt) {
+            const record: IndexedSession = {
+              sessionId,
+              cwd,
+              updatedAt,
+              filePath,
+              source: 'sessions' satisfies SessionSource,
+              backend: 'qwen',
+            };
+            if (createdAt) {
+              record.createdAt = createdAt;
+            }
+            sessions.set(sessionId, record);
+          }
+        } catch {
+          continue;
         }
-      } catch {
-        continue;
       }
     }
 
@@ -360,9 +395,9 @@ export class ClaudeBackend implements Backend {
   }
 }
 
-function resolveClaudeHomeDir(): string {
-  const configured = process.env.CLAUDE_HOME?.trim();
-  if (!configured) return path.join(os.homedir(), '.claude');
+function resolveQwenHomeDir(): string {
+  const configured = process.env.QWEN_HOME?.trim();
+  if (!configured) return path.join(os.homedir(), '.qwen');
   if (configured === '~') return os.homedir();
   if (configured.startsWith('~/')) return path.join(os.homedir(), configured.slice(2));
   return path.resolve(configured);
@@ -420,29 +455,28 @@ function normalizeProjectName(input: string): string {
 // Registry definition
 // ---------------------------------------------------------------------------
 
-export const claudeBackendDefinition: BackendDefinition = {
-  name: 'claude',
+export const qwenBackendDefinition: BackendDefinition = {
+  name: 'qwen',
   create(config) {
-    return new ClaudeBackend({
-      bin: config.claude?.bin ?? 'claude',
-      shell: config.claude?.shell ?? config.codex.shell,
-      preExec: config.claude?.pre_exec ?? config.codex.pre_exec,
-      defaultPermissionMode: config.claude?.default_permission_mode ?? 'auto',
-      defaultModel: config.claude?.default_model,
-      maxBudgetUsd: config.claude?.max_budget_usd,
-      allowedTools: config.claude?.allowed_tools,
-      systemPromptAppend: config.claude?.system_prompt_append,
-      runTimeoutMs: config.claude?.run_timeout_ms ?? config.codex.run_timeout_ms,
+    return new QwenBackend({
+      bin: config.qwen?.bin ?? 'qwen',
+      shell: config.qwen?.shell ?? config.codex.shell,
+      preExec: config.qwen?.pre_exec ?? config.codex.pre_exec,
+      defaultApprovalMode: config.qwen?.default_approval_mode ?? 'default',
+      defaultModel: config.qwen?.default_model,
+      allowedTools: config.qwen?.allowed_tools,
+      systemPromptAppend: config.qwen?.system_prompt_append,
+      runTimeoutMs: config.qwen?.run_timeout_ms ?? config.codex.run_timeout_ms,
     });
   },
   probeSpec(config) {
     return {
-      bin: config.claude?.bin ?? 'claude',
-      shell: config.claude?.shell ?? config.codex.shell,
-      preExec: config.claude?.pre_exec ?? config.codex.pre_exec,
+      bin: config.qwen?.bin ?? 'qwen',
+      shell: config.qwen?.shell ?? config.codex.shell,
+      preExec: config.qwen?.pre_exec ?? config.codex.pre_exec,
     };
   },
-  defaultFallback: ['codex', 'qwen'],
+  defaultFallback: ['claude', 'codex'],
 };
 
-registerBackend(claudeBackendDefinition);
+registerBackend(qwenBackendDefinition);

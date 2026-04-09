@@ -29,6 +29,7 @@ import type { MemoryContext } from '../memory/retrieve.js';
 import { CodexSessionIndex } from '../codex/session-index.js';
 import type { Backend, BackendName } from '../backend/types.js';
 import { resolveProjectBackendWithOverride, resolveProjectBackendName, type FailoverInfo } from '../backend/factory.js';
+import { getBackendDefinition, listBackendNames } from '../backend/registry.js';
 import {
   buildQueueKey,
   isExecutionRunStatus,
@@ -1543,10 +1544,11 @@ export class FeiqueService {
     }
 
     const normalized = name.toLowerCase();
-    if (normalized !== 'codex' && normalized !== 'claude') {
+    if (!getBackendDefinition(normalized)) {
+      const known = listBackendNames().join(' | ');
       await this.sendTextReply(
         context.chat_id,
-        `未知后端: ${name}\n可选值: codex | claude`,
+        `未知后端: ${name}\n可选值: ${known}`,
         context.message_id,
         context.text,
       );
@@ -1563,7 +1565,7 @@ export class FeiqueService {
       conversation_key: projectContext.sessionKey,
       backend: backendName,
     });
-    const label = backendName === 'claude' ? 'Claude Code' : 'Codex';
+    const label = backendName === 'claude' ? 'Claude Code' : backendName === 'qwen' ? 'Qwen Code' : 'Codex';
     await this.sendTextReply(
       context.chat_id,
       `项目 ${projectContext.projectAlias} 已切换到 ${label} 后端。\n下一条消息将使用 ${label} 执行。`,

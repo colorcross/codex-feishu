@@ -1,25 +1,31 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { resolveProjectBackendWithFailover } from '../src/backend/factory.js';
+import { resolveProjectBackendWithFailover, resolveFallbackChain } from '../src/backend/factory.js';
 import { clearProbeCache } from '../src/backend/probe.js';
+import { listBackendNames } from '../src/backend/registry.js';
 import type { BridgeConfig } from '../src/config/schema.js';
 
 /**
  * Minimal BridgeConfig factory for failover unit tests. We only populate
  * the fields the failover resolver touches (backend / codex / claude /
- * projects) and cast through unknown to satisfy the full schema type.
+ * qwen / projects) and cast through unknown to satisfy the full schema type.
  */
 function makeConfig(overrides: {
-  defaultBackend?: 'codex' | 'claude';
+  defaultBackend?: string;
   failover?: boolean;
+  fallback?: string[];
   codexBin: string;
   claudeBin: string;
-  projects?: Record<string, { backend?: 'codex' | 'claude'; failover?: boolean }>;
+  qwenBin: string;
+  projects?: Record<string, { backend?: string; failover?: boolean; fallback?: string[] }>;
 }): BridgeConfig {
+  const backendSection: Record<string, unknown> = {
+    default: overrides.defaultBackend ?? 'codex',
+    failover: overrides.failover ?? true,
+  };
+  if (overrides.fallback) backendSection.fallback = overrides.fallback;
+
   return {
-    backend: {
-      default: overrides.defaultBackend ?? 'codex',
-      failover: overrides.failover ?? true,
-    },
+    backend: backendSection,
     codex: {
       bin: overrides.codexBin,
       pre_exec: undefined,
@@ -36,6 +42,13 @@ function makeConfig(overrides: {
       default_permission_mode: 'auto',
       output_token_limit: 4000,
     },
+    qwen: {
+      bin: overrides.qwenBin,
+      pre_exec: undefined,
+      shell: undefined,
+      default_approval_mode: 'default',
+      output_token_limit: 4000,
+    },
     projects: Object.fromEntries(
       Object.entries(overrides.projects ?? {}).map(([alias, p]) => [
         alias,
@@ -43,6 +56,7 @@ function makeConfig(overrides: {
           root: '/tmp/nope',
           backend: p.backend,
           failover: p.failover,
+          fallback: p.fallback,
           session_scope: 'chat',
           mention_required: false,
           knowledge_paths: [],
@@ -58,7 +72,7 @@ function makeConfig(overrides: {
   } as unknown as BridgeConfig;
 }
 
-describe('resolveProjectBackendWithFailover', () => {
+describe('resolveProjectBackendWithFailover — 2-backend scenarios', () => {
   beforeEach(() => {
     clearProbeCache();
   });
@@ -68,6 +82,7 @@ describe('resolveProjectBackendWithFailover', () => {
       defaultBackend: 'codex',
       codexBin: '/usr/bin/true',
       claudeBin: '/usr/bin/false',
+      qwenBin: '/usr/bin/false',
       projects: { demo: {} },
     });
     const result = await resolveProjectBackendWithFailover(config, 'demo');
@@ -75,11 +90,12 @@ describe('resolveProjectBackendWithFailover', () => {
     expect(result.failover).toBeUndefined();
   });
 
-  it('falls over to the alternate when the primary probe fails and the alternate succeeds', async () => {
+  it('falls over to the first chain candidate that probes ok', async () => {
     const config = makeConfig({
       defaultBackend: 'codex',
       codexBin: '/definitely/missing/xyz',
       claudeBin: '/usr/bin/true',
+      qwenBin: '/usr/bin/false',
       projects: { demo: {} },
     });
     const result = await resolveProjectBackendWithFailover(config, 'demo');
@@ -90,11 +106,12 @@ describe('resolveProjectBackendWithFailover', () => {
     expect(result.failover?.reason).toContain('not found');
   });
 
-  it('returns the primary (with no failover info) when both probes fail', async () => {
+  it('returns the primary (with no failover info) when every candidate in the chain fails', async () => {
     const config = makeConfig({
       defaultBackend: 'claude',
       codexBin: '/definitely/missing/xyz',
       claudeBin: '/definitely/missing/abc',
+      qwenBin: '/definitely/missing/def',
       projects: { demo: {} },
     });
     const result = await resolveProjectBackendWithFailover(config, 'demo');
@@ -107,6 +124,7 @@ describe('resolveProjectBackendWithFailover', () => {
       defaultBackend: 'codex',
       codexBin: '/definitely/missing/xyz',
       claudeBin: '/usr/bin/true',
+      qwenBin: '/usr/bin/true',
       projects: { demo: { failover: false } },
     });
     const result = await resolveProjectBackendWithFailover(config, 'demo');
@@ -120,6 +138,7 @@ describe('resolveProjectBackendWithFailover', () => {
       failover: false,
       codexBin: '/definitely/missing/xyz',
       claudeBin: '/usr/bin/true',
+      qwenBin: '/usr/bin/true',
       projects: { demo: {} },
     });
     const result = await resolveProjectBackendWithFailover(config, 'demo');
@@ -133,6 +152,7 @@ describe('resolveProjectBackendWithFailover', () => {
       failover: false,
       codexBin: '/definitely/missing/xyz',
       claudeBin: '/usr/bin/true',
+      qwenBin: '/usr/bin/false',
       projects: { demo: { failover: true } },
     });
     const result = await resolveProjectBackendWithFailover(config, 'demo');
@@ -145,6 +165,7 @@ describe('resolveProjectBackendWithFailover', () => {
       defaultBackend: 'codex',
       codexBin: '/usr/bin/true',
       claudeBin: '/definitely/missing/xyz',
+      qwenBin: '/usr/bin/false',
       projects: { demo: {} },
     });
     const result = await resolveProjectBackendWithFailover(config, 'demo', 'claude');
@@ -152,5 +173,106 @@ describe('resolveProjectBackendWithFailover', () => {
     expect(result.name).toBe('codex');
     expect(result.failover?.from).toBe('claude');
     expect(result.failover?.to).toBe('codex');
+  });
+});
+
+describe('resolveProjectBackendWithFailover — 3-backend fallback chain', () => {
+  beforeEach(() => {
+    clearProbeCache();
+  });
+
+  it('walks the chain past a broken first candidate to find the second', async () => {
+    // codex.defaultFallback = ['claude', 'qwen']. With primary codex broken
+    // and claude also broken, the resolver should continue to qwen.
+    const config = makeConfig({
+      defaultBackend: 'codex',
+      codexBin: '/definitely/missing/aaa',
+      claudeBin: '/definitely/missing/bbb',
+      qwenBin: '/usr/bin/true',
+      projects: { demo: {} },
+    });
+    const result = await resolveProjectBackendWithFailover(config, 'demo');
+    expect(result.name).toBe('qwen');
+    expect(result.failover?.from).toBe('codex');
+    expect(result.failover?.to).toBe('qwen');
+  });
+
+  it('respects an explicit global fallback chain (skips defaults)', async () => {
+    // Default chain for codex would be ['claude', 'qwen'], but we ask the
+    // resolver to try qwen first. claude is alive but should be ignored
+    // because the explicit fallback narrows the chain to ['qwen'].
+    const config = makeConfig({
+      defaultBackend: 'codex',
+      fallback: ['qwen'],
+      codexBin: '/definitely/missing/aaa',
+      claudeBin: '/usr/bin/true',
+      qwenBin: '/usr/bin/true',
+      projects: { demo: {} },
+    });
+    const result = await resolveProjectBackendWithFailover(config, 'demo');
+    expect(result.name).toBe('qwen');
+  });
+
+  it('respects an explicit per-project fallback chain over the global one', async () => {
+    const config = makeConfig({
+      defaultBackend: 'codex',
+      fallback: ['qwen'],
+      codexBin: '/definitely/missing/aaa',
+      claudeBin: '/usr/bin/true',
+      qwenBin: '/definitely/missing/ccc',
+      projects: { demo: { fallback: ['claude'] } },
+    });
+    const result = await resolveProjectBackendWithFailover(config, 'demo');
+    // Project's ['claude'] wins over global ['qwen']; claude is alive.
+    expect(result.name).toBe('claude');
+  });
+
+  it('skips unknown backends in the fallback chain', async () => {
+    const config = makeConfig({
+      defaultBackend: 'codex',
+      fallback: ['nonexistent', 'qwen'],
+      codexBin: '/definitely/missing/aaa',
+      claudeBin: '/usr/bin/true',
+      qwenBin: '/usr/bin/true',
+      projects: { demo: {} },
+    });
+    const result = await resolveProjectBackendWithFailover(config, 'demo');
+    // 'nonexistent' is silently skipped, qwen takes over.
+    expect(result.name).toBe('qwen');
+  });
+
+  it('never includes the primary in the fallback chain', () => {
+    const config = makeConfig({
+      defaultBackend: 'codex',
+      fallback: ['codex', 'claude', 'qwen'],
+      codexBin: '/usr/bin/true',
+      claudeBin: '/usr/bin/true',
+      qwenBin: '/usr/bin/true',
+      projects: { demo: {} },
+    });
+    const chain = resolveFallbackChain(config, 'demo', 'codex');
+    expect(chain).toEqual(['claude', 'qwen']);
+  });
+
+  it('de-duplicates the fallback chain', () => {
+    const config = makeConfig({
+      defaultBackend: 'codex',
+      fallback: ['claude', 'qwen', 'claude', 'qwen'],
+      codexBin: '/usr/bin/true',
+      claudeBin: '/usr/bin/true',
+      qwenBin: '/usr/bin/true',
+      projects: { demo: {} },
+    });
+    const chain = resolveFallbackChain(config, 'demo', 'codex');
+    expect(chain).toEqual(['claude', 'qwen']);
+  });
+});
+
+describe('registry integration', () => {
+  it('has codex, claude, and qwen registered', () => {
+    const names = listBackendNames();
+    expect(names).toContain('codex');
+    expect(names).toContain('claude');
+    expect(names).toContain('qwen');
   });
 });

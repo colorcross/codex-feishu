@@ -14,6 +14,7 @@ export const memoryPinAgeBasisSchema = z.enum(['updated_at', 'last_accessed_at']
 export const backendNameSchema = z.string();
 export const embeddingProviderSchema = z.enum(['local', 'ollama']);
 export const claudePermissionModeSchema = z.enum(['acceptEdits', 'bypassPermissions', 'default', 'dontAsk', 'plan', 'auto']);
+export const qwenApprovalModeSchema = z.enum(['plan', 'default', 'auto-edit', 'yolo']);
 
 export const projectSchema = z.object({
   root: z.string(),
@@ -48,6 +49,10 @@ export const projectSchema = z.object({
   claude_max_budget_usd: z.number().positive().optional(),
   claude_allowed_tools: z.array(z.string()).optional(),
   claude_system_prompt_append: z.string().optional(),
+  qwen_approval_mode: qwenApprovalModeSchema.optional(),
+  qwen_model: z.string().optional(),
+  qwen_allowed_tools: z.array(z.string()).optional(),
+  qwen_system_prompt_append: z.string().optional(),
   codex_model: z.string().optional(),
   codex_sandbox: sandboxSchema.optional(),
   mcp_servers: z.array(z.object({
@@ -252,6 +257,24 @@ export const bridgeConfigSchema = z.object({
     .default({
       bin: 'claude',
       default_permission_mode: 'auto',
+      output_token_limit: 4000,
+    }),
+  qwen: z
+    .object({
+      bin: z.string().default('qwen'),
+      shell: z.string().optional(),
+      pre_exec: z.string().optional(),
+      default_approval_mode: qwenApprovalModeSchema.default('default'),
+      default_model: z.string().optional(),
+      allowed_tools: z.array(z.string()).optional(),
+      system_prompt_append: z.string().optional(),
+      run_timeout_ms: z.number().int().positive().optional(),
+      output_token_limit: z.number().int().positive().default(4000),
+    })
+    .optional()
+    .default({
+      bin: 'qwen',
+      default_approval_mode: 'default',
       output_token_limit: 4000,
     }),
   embedding: z

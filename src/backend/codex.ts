@@ -166,7 +166,7 @@ export const codexBackendDefinition: BackendDefinition = {
       preExec: config.codex.pre_exec,
     };
   },
-  defaultFallback: ['claude'],
+  defaultFallback: ['claude', 'qwen'],
 };
 
 registerBackend(codexBackendDefinition);

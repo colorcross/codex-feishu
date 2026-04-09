@@ -1718,6 +1718,7 @@ function buildConfig(dir: string, overrides: TestConfigOverrides): BridgeConfig 
     },
     backend: { default: 'codex', failover: false },
     claude: { bin: 'claude', default_permission_mode: 'auto', output_token_limit: 4000 },
+    qwen: { bin: 'qwen', default_approval_mode: 'default', output_token_limit: 4000 },
     storage: {
       dir,
     },

@@ -50,7 +50,7 @@ Intents:
 - project: Switch project (params: alias)
 - new: New session
 - cancel: Cancel run
-- backend: Switch AI backend (params: name=codex|claude) or view current (no params)
+- backend: Switch AI backend (params: name=codex|claude|qwen) or view current (no params)
 - team: View team activity
 - learn: Save knowledge (params: value=content)
 - recall: Search knowledge (params: query=terms)

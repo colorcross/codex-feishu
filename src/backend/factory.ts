@@ -9,13 +9,14 @@ import {
   type BackendDependencies,
 } from './registry.js';
 
-// Side-effect imports: these force the codex and claude backend modules
-// to load and call registerBackend() before the factory is first used.
-// Adding a new backend means adding a matching import line here (and in
+// Side-effect imports: these force the backend modules to load and call
+// registerBackend() before the factory is first used. Adding a new
+// backend means adding a matching import line here (and in
 // src/bridge/service.ts for anything that uses BackendName before the
 // factory is touched — rare).
 import './codex.js';
 import './claude.js';
+import './qwen.js';
 
 function toDeps(codexSessionIndex?: CodexSessionIndex): BackendDependencies {
   return codexSessionIndex ? { codexSessionIndex } : {};
