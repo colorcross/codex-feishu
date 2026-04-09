@@ -29,7 +29,7 @@ export type BridgeCommand =
   | { kind: 'admin'; resource: 'project'; action: AdminProjectAction; alias?: string; field?: string; value?: string }
   | { kind: 'admin'; resource: 'service'; action: 'status' | 'restart' | 'runs' }
   | { kind: 'admin'; resource: 'config'; action: AdminConfigAction; value?: string }
-  | { kind: 'backend'; name?: string }
+  | { kind: 'backend'; action?: 'list'; name?: string }
   | { kind: 'team' }
   | { kind: 'learn'; value: string }
   | { kind: 'recall'; query: string }
@@ -88,8 +88,13 @@ export function parseBridgeCommand(input: string): BridgeCommand {
       return parseSessionCommand(argument);
     case '/admin':
       return parseAdminCommand(argument);
-    case '/backend':
-      return { kind: 'backend', name: argument || undefined };
+    case '/backend': {
+      const arg = (argument || '').trim().toLowerCase();
+      if (arg === 'list' || arg === 'ls' || arg === '列表' || arg === '所有') {
+        return { kind: 'backend', action: 'list' };
+      }
+      return { kind: 'backend', name: arg || undefined };
+    }
     case '/team':
       return { kind: 'team' };
     case '/learn':
@@ -166,6 +171,7 @@ export function buildFullHelpText(): string {
     '',
     '后端切换',
     '/backend 查看当前项目的活跃后端',
+    '/backend list 列出所有已注册后端 + fallback 链 + failover 开关',
     '/backend codex 切换当前项目到 Codex 后端',
     '/backend claude 切换当前项目到 Claude Code 后端',
     '/backend qwen 切换当前项目到 Qwen Code 后端',
@@ -338,6 +344,7 @@ export function describeBridgeCommand(command: BridgeCommand): string {
       }
       return `管理员操作: ${command.resource} ${command.action}${'value' in command && command.value ? ` ${command.value}` : ''}`;
     case 'backend':
+      if (command.action === 'list') return '列出所有已注册后端';
       return command.name ? `切换后端到 ${command.name}` : '查看当前后端';
     case 'team':
       return '查看团队协作态势';
@@ -393,7 +400,7 @@ export function isReadOnlyCommand(command: BridgeCommand): boolean {
     case 'session':
       return command.action === 'list';
     case 'backend':
-      return !command.name;
+      return command.action === 'list' || !command.name;
     case 'team':
     case 'recall':
     case 'insights':
@@ -594,6 +601,20 @@ function parseNaturalLanguageCommand(input: string): BridgeCommand | null {
   // Pattern 5: "用的什么/哪个" — "现在用的什么" / "当前用的哪个"
   if (/^(?:现在|当前)?用的(?:什么|哪个)(?:后端|backend)?$/.test(normalized)) {
     return { kind: 'backend' };
+  }
+  // Pattern 5b: 列出所有后端 / 有哪些后端 / 后端有哪些 / 支持哪些后端
+  if (/^(?:列出|列|查看|看|看看|显示|给我看|show|list)?\s*(?:所有|全部|已(?:注册|支持))?\s*(?:(?:可用|支持)(?:的)?)?\s*(?:后端|backend)s?$/i.test(normalized)
+      || /^(?:有|支持)哪些(?:后端|backend)s?$/.test(normalized)
+      || /^(?:后端|backend)s?\s*(?:有|列表|清单|列出)$/i.test(normalized)
+      || /^(?:后端|backend)s?\s*有哪些$/i.test(normalized)
+      || /^(?:list|show)\s+(?:all\s+)?backends?$/i.test(normalized)
+      || /^(?:which|what)\s+backends?(?:\s+are\s+(?:available|supported))?\??$/i.test(normalized)) {
+    return { kind: 'backend', action: 'list' };
+  }
+  // Pattern 5c: 查看 fallback 链 / 降级顺序
+  if (/^(?:查看?|看|显示)?\s*(?:fallback|降级|备用|故障转移)\s*(?:链|顺序|列表|配置)?$/i.test(normalized)
+      || /^fallback\s*chain\??$/i.test(normalized)) {
+    return { kind: 'backend', action: 'list' };
   }
   // Pattern 6: English — "switch to claude" / "use codex" / "change to claude"
   const backendEnglish = normalized.match(/^(?:switch(?:\s+backend)?(?:\s+to)?|use|change(?:\s+backend)?(?:\s+to)?|backend)\s+(codex|claude|qwen)$/i);

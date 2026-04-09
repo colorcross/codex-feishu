@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.5.1] — 2026-04-09
+
+### 新增
+- **`/backend list` 子命令** — 一次性列出所有已注册 backend + 当前主后端 + fallback 链 + failover 开关及其来源（项目配置 / 全局默认 / 注册表默认）。输出长得像:
+
+  ```
+  项目: acme
+
+  当前主后端: claude（全局默认）
+  Failover: 启用（全局默认）
+  Fallback 链: claude → codex → qwen
+
+  已注册的后端:
+    • codex (fallback)
+    • claude ← 当前
+    • qwen (fallback)
+  ```
+
+### 自然语言扩展
+v1.5.0 只为"切换到 qwen"加了 NL（在原有 codex/claude 的 5 个 regex 里加 qwen alternation），本版本补齐其余新功能的 NL 触发:
+
+- **列出后端**: `列出所有后端` / `有哪些后端` / `后端有哪些` / `支持哪些后端` / `list backends` / `which backends` / `show all backends`
+- **查看 fallback 链**: `查看 fallback 链` / `降级顺序` / `故障转移配置` / `fallback chain` — 全部路由到 `/backend list`（同一个输出包含这些信息）
+- **短命令别名**: `/backend ls` / `/backend 列表` / `/backend 所有`
+
+### 内部
+- `BridgeCommand` 的 `backend` variant 加 `action?: 'list'` 字段
+- `handleBackendCommand` 多一个 `list` 分支
+- `isReadOnlyCommand` 承认 `/backend list` 为只读（可用于接管中会话的 followup）
+- `tests/commands.test.ts` +16 个 cases（qwen 切换 NL + `/backend list` + 自然语言别名 + fallback 链查询别名 + isReadOnlyCommand 验证）
+
+### 验证
+- `npm run typecheck`: clean
+- `npm test`: **561/561** passing（v1.5.0 是 545/545）
+
 ## [1.5.0] — 2026-04-09
 
 ### 新功能

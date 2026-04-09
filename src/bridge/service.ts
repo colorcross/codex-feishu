@@ -28,7 +28,7 @@ import { MemoryStore } from '../state/memory-store.js';
 import type { MemoryContext } from '../memory/retrieve.js';
 import { CodexSessionIndex } from '../codex/session-index.js';
 import type { Backend, BackendName } from '../backend/types.js';
-import { resolveProjectBackendWithOverride, resolveProjectBackendName, type FailoverInfo } from '../backend/factory.js';
+import { resolveProjectBackendWithOverride, resolveProjectBackendName, resolveFallbackChain, type FailoverInfo } from '../backend/factory.js';
 import { getBackendDefinition, listBackendNames } from '../backend/registry.js';
 import {
   buildQueueKey,
@@ -384,7 +384,7 @@ export class FeiqueService {
           await this.handleWikiCommand(context, selectionKey, command.action, command.value, command.extra, command.target, command.role);
           return;
         case 'backend':
-          await this.handleBackendCommand(context, selectionKey, command.name);
+          await this.handleBackendCommand(context, selectionKey, command.name, command.action);
           return;
         case 'session':
           const sessionArgument = command.action === 'adopt' ? command.target : command.threadId;
@@ -731,7 +731,7 @@ export class FeiqueService {
         await this.handleWikiCommand(context, selectionKey, command.action, command.value, command.extra, command.target, command.role);
         return;
       case 'backend':
-        await this.handleBackendCommand(context, selectionKey, command.name);
+        await this.handleBackendCommand(context, selectionKey, command.name, command.action);
         return;
       case 'session': {
         const sessionArgument = command.action === 'adopt' ? command.target : command.threadId;
@@ -1523,8 +1523,49 @@ export class FeiqueService {
     context: IncomingMessageContext,
     selectionKey: string,
     name?: string,
+    action?: 'list',
   ): Promise<void> {
     const projectContext = await this.resolveProjectContext(context, selectionKey);
+
+    if (action === 'list') {
+      const sessionOverride = await this.sessionStore.getProjectBackend(projectContext.sessionKey, projectContext.projectAlias);
+      const primaryName = resolveProjectBackendName(this.config, projectContext.projectAlias, sessionOverride);
+      const chain = resolveFallbackChain(this.config, projectContext.projectAlias, primaryName);
+      const project = this.config.projects[projectContext.projectAlias];
+      const failoverEnabled = project?.failover ?? this.config.backend?.failover ?? true;
+      const failoverSource = project?.failover !== undefined
+        ? '项目配置'
+        : this.config.backend?.failover !== undefined ? '全局默认' : '注册表默认';
+
+      const registered = listBackendNames();
+      const lines = [
+        `项目: ${projectContext.projectAlias}`,
+        '',
+        `当前主后端: ${primaryName}${sessionOverride ? '（会话级覆盖）' : project?.backend ? '（项目配置）' : '（全局默认）'}`,
+        `Failover: ${failoverEnabled ? '启用' : '关闭'}（${failoverSource}）`,
+        chain.length > 0
+          ? `Fallback 链: ${primaryName} → ${chain.join(' → ')}`
+          : `Fallback 链: 无（链为空）`,
+        '',
+        '已注册的后端:',
+        ...registered.map((n) => {
+          const marker = n === primaryName ? ' ← 当前' : chain.includes(n) ? ' (fallback)' : '';
+          return `  • ${n}${marker}`;
+        }),
+        '',
+        '用法:',
+        `  /backend ${registered.join('|')} — 切换到指定后端`,
+        '  /backend — 只查看当前后端',
+        '  /backend list — 查看完整清单（本命令）',
+      ];
+      await this.sendTextReply(
+        context.chat_id,
+        lines.join('\n'),
+        context.message_id,
+        context.text,
+      );
+      return;
+    }
 
     if (!name) {
       const sessionOverride = await this.sessionStore.getProjectBackend(projectContext.sessionKey, projectContext.projectAlias);

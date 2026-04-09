@@ -341,6 +341,60 @@ describe('bridge commands', () => {
       expect(describeBridgeCommand({ kind: 'backend' })).toBe('查看当前后端');
       expect(describeBridgeCommand({ kind: 'backend', name: 'claude' })).toBe('切换后端到 claude');
       expect(describeBridgeCommand({ kind: 'backend', name: 'codex' })).toBe('切换后端到 codex');
+      expect(describeBridgeCommand({ kind: 'backend', action: 'list' })).toBe('列出所有已注册后端');
+    });
+
+    // ── v1.5+ qwen switch natural language ──
+    it('parses "/backend qwen"', () => {
+      expect(parseBridgeCommand('/backend qwen')).toEqual({ kind: 'backend', name: 'qwen' });
+    });
+    it('parses "用 qwen"', () => {
+      expect(parseBridgeCommand('用 qwen')).toEqual({ kind: 'backend', name: 'qwen' });
+    });
+    it('parses "切到 qwen"', () => {
+      expect(parseBridgeCommand('切到 qwen')).toEqual({ kind: 'backend', name: 'qwen' });
+    });
+    it('parses "switch to qwen"', () => {
+      expect(parseBridgeCommand('switch to qwen')).toEqual({ kind: 'backend', name: 'qwen' });
+    });
+
+    // ── v1.5.1+ /backend list + NL triggers ──
+    it('parses "/backend list" as action=list', () => {
+      expect(parseBridgeCommand('/backend list')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "/backend ls" as action=list', () => {
+      expect(parseBridgeCommand('/backend ls')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "/backend 列表" as action=list', () => {
+      expect(parseBridgeCommand('/backend 列表')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "列出所有后端" as action=list', () => {
+      expect(parseBridgeCommand('列出所有后端')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "有哪些后端" as action=list', () => {
+      expect(parseBridgeCommand('有哪些后端')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "后端有哪些" as action=list', () => {
+      expect(parseBridgeCommand('后端有哪些')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "支持哪些后端" as action=list', () => {
+      expect(parseBridgeCommand('支持哪些后端')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "list backends" as action=list', () => {
+      expect(parseBridgeCommand('list backends')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "which backends" as action=list', () => {
+      expect(parseBridgeCommand('which backends')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "查看 fallback 链" as action=list', () => {
+      expect(parseBridgeCommand('查看 fallback 链')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('parses "降级顺序" as action=list', () => {
+      expect(parseBridgeCommand('降级顺序')).toEqual({ kind: 'backend', action: 'list' });
+    });
+    it('isReadOnlyCommand returns true for /backend list', () => {
+      const cmd = parseBridgeCommand('/backend list');
+      expect(isReadOnlyCommand(cmd)).toBe(true);
     });
   });
 
