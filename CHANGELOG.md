@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.2] — 2026-04-11
+
+### 改进
+- **默认启用会话恢复（resume mode）**：`project_switch_auto_adopt_latest` 从 `false` 改为 `true`。新安装的 feique 实例在用户发第一条消息时，会自动扫描本地 CLI 的 session 目录（`~/.codex/sessions/` / `~/.claude/sessions/` / `~/.qwen/projects/<slug>/chats/`），找到匹配当前项目根目录的最近会话并 `--resume <session_id>`，实现"换个飞书窗口也能接着上次聊"的体验。已经在用的实例如果 config 里显式写了 `project_switch_auto_adopt_latest = true`，不受影响。
+
 ## [1.5.1] — 2026-04-09
 
 ### 新增
