@@ -159,7 +159,7 @@ describe('bridge service', () => {
     expect(JSON.stringify(setup.sendPost.mock.calls[0]?.[1] ?? {})).not.toContain('已收到你的消息，正在准备处理。');
   });
 
-  it('sends an initial text status reply and updates it through completion', async () => {
+  it('sends only the final text reply for normal runs', async () => {
     const setup = await createService();
     runCodexTurnMock.mockResolvedValue({
       sessionId: 'thread-1',
@@ -172,28 +172,38 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-update-reply' }));
 
     expect(setup.sendText).toHaveBeenCalledTimes(1);
-    expect(setup.sendText).toHaveBeenCalledWith('chat', expect.any(String), expect.objectContaining({ replyToMessageId: 'm-update-reply' }));
-    expect(setup.sendText.mock.calls[0]?.[1]).toContain('状态: 已接收');
-    expect(setup.updateText).toHaveBeenCalledTimes(2);
-    expect(setup.updateText.mock.calls[0]?.[1]).toContain('状态: 处理中');
-    expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('最终结果');
+    expect(setup.sendText.mock.calls[0]?.[0]).toBe('chat');
+    expect(setup.sendText.mock.calls[0]?.[1]).toContain('最终结果');
+    expect(setup.sendText.mock.calls[0]?.[1]).not.toContain('状态: 已接收');
+    expect(setup.updateText).not.toHaveBeenCalled();
   });
 
   it('continues the backend run when an in-place lifecycle update fails', async () => {
     const setup = await createService();
     setup.updateText.mockRejectedValueOnce(new Error('Feishu update failed'));
-    runCodexTurnMock.mockResolvedValue({
-      sessionId: 'thread-1',
-      finalMessage: '最终结果',
-      stderr: '',
-      exitCode: 0,
-      capabilities: { version: 'codex-cli 0.98.0', exec: {}, resume: {} },
+    setup.service.runReplyTargets.set('run-update-fallback', {
+      messageId: 'm-existing',
+      mode: 'text',
     });
 
-    await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-update-fallback' }));
+    await setup.service.sendOrUpdateRunOutcome({
+      input: {
+        chatId: 'chat',
+        projectAlias: 'default',
+        sessionKey: 'session',
+        prompt: '执行一次',
+        replyToMessageId: 'm-update-fallback',
+      },
+      runId: 'run-update-fallback',
+      title: 'Codex 已完成',
+      body: '最终结果',
+      runStatus: 'success',
+      runPhase: '已完成',
+      cardSummary: '最终结果',
+    });
 
-    expect(runCodexTurnMock).toHaveBeenCalledTimes(1);
-    expect(setup.sendText).toHaveBeenCalledTimes(2);
+    expect(setup.updateText).toHaveBeenCalledTimes(1);
+    expect(setup.sendText).toHaveBeenCalledTimes(1);
     expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('最终结果');
     expect(setup.sendText.mock.calls.at(-1)?.[1]).not.toContain('处理失败');
   });

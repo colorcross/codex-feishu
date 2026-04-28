@@ -2684,10 +2684,9 @@ export class FeiqueService {
     originalText?: string;
   }): Promise<void> {
     const lifecycleMode = resolveRunLifecycleReplyMode(this.config);
-    // Feishu rejects PATCH updates for post messages in long-connection mode.
-    // For post mode, keep the user-facing surface to a single final rich-text
-    // reply instead of sending an initial message that cannot be updated.
-    if (lifecycleMode === 'post') {
+    // Keep normal runs to a single final reply. Queued runs still get an
+    // explicit queue notice because the user is waiting behind other work.
+    if (!input.queued || lifecycleMode === 'post') {
       return;
     }
     const draft = this.buildInitialRunLifecycleReply(input.projectAlias, input.queued, lifecycleMode);
