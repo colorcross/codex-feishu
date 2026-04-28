@@ -377,7 +377,7 @@ describe('collaboration e2e: full team workflow', () => {
     await setup.service.handleIncomingMessage(buildMessage('fix the bug'));
 
     expect(runCodexTurnMock).toHaveBeenCalledTimes(1);
-    expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('bug fixed successfully');
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('bug fixed successfully');
   });
 
   // ── Step 6: Team activity during a run ──
@@ -578,7 +578,7 @@ describe('collaboration e2e: full team workflow', () => {
       buildMessage('fix the bug', { message_id: 'm-e2e-run' }),
     );
     expect(runCodexTurnMock).toHaveBeenCalledTimes(1);
-    expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('bug fixed');
+    expect(setup.sendText.mock.calls.at(-1)?.[1]).toContain('bug fixed');
 
     // 6. Team during run — run already completed, but let's start another
     let resolveRun: ((value: unknown) => void) | undefined;

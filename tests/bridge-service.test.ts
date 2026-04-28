@@ -100,10 +100,10 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('请帮我看下当前路径', { message_id: 'm-reply' }));
     expect(setup.sendText).toHaveBeenCalledWith(
       'chat',
-      expect.stringContaining('状态: 已接收'),
+      expect.stringContaining('done'),
       expect.objectContaining({ replyToMessageId: 'm-reply' }),
     );
-    expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('done');
+    expect(setup.updateText).not.toHaveBeenCalled();
   });
 
   it('does not include run ids in Feishu success replies', async () => {
@@ -117,7 +117,7 @@ describe('bridge service', () => {
     });
 
     await setup.service.handleIncomingMessage(buildMessage('检查输出', { message_id: 'm-no-run-id' }));
-    const replyBody = setup.updateText.mock.calls.at(-1)?.[1] as string;
+    const replyBody = setup.sendText.mock.calls.at(-1)?.[1] as string;
     expect(replyBody).toContain('done');
     expect(replyBody).not.toContain('引用:');
     expect(replyBody).not.toContain('运行:');
@@ -319,12 +319,10 @@ describe('bridge service', () => {
     await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-card-final' }));
 
     expect(setup.sendCard).toHaveBeenCalledTimes(1);
-    expect(setup.updateCard).toHaveBeenCalledTimes(2);
-    const payload = JSON.stringify(setup.updateCard.mock.calls.at(-1)?.[1] ?? {});
+    expect(setup.updateCard).not.toHaveBeenCalled();
+    const payload = JSON.stringify(setup.sendCard.mock.calls.at(-1)?.[1] ?? {});
     expect(payload).toContain('最终结果');
-    expect(payload).toContain('**项目**: default');
     expect(payload).toContain('**状态**: 已完成');
-    expect(payload).toContain('**阶段**: 已完成');
   });
 
   it('lets admin chats add a group id, create a project, and update it dynamically', async () => {
