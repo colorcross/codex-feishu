@@ -10,6 +10,7 @@ export interface CodexBackendConfig {
   shell?: string;
   preExec?: string;
   defaultProfile?: string;
+  defaultModel?: string;
   defaultSandbox: SandboxMode;
   skipGitRepoCheck: boolean;
   runTimeoutMs: number;
@@ -40,7 +41,7 @@ export class CodexBackend implements Backend {
       prompt: options.prompt,
       sessionId: options.sessionId,
       profile: options.projectConfig?.profile ?? this.config.defaultProfile,
-      model: options.projectConfig?.model,
+      model: options.projectConfig?.model ?? this.config.defaultModel,
       sandbox: options.projectConfig?.sandbox ?? this.config.defaultSandbox,
       tempDir: options.projectConfig?.tempDir,
       cacheDir: options.projectConfig?.cacheDir,
@@ -152,6 +153,7 @@ export const codexBackendDefinition: BackendDefinition = {
         shell: config.codex.shell,
         preExec: config.codex.pre_exec,
         defaultProfile: config.codex.default_profile,
+        defaultModel: config.codex.default_model,
         defaultSandbox: config.codex.default_sandbox,
         skipGitRepoCheck: config.codex.skip_git_repo_check,
         runTimeoutMs: config.codex.run_timeout_ms,

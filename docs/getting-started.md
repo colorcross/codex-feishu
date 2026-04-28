@@ -168,10 +168,13 @@ project_switch_auto_adopt_latest = true
 [backend]
 default = "codex"     # 全局默认后端，可选 "codex" | "claude"
 
+[codex]
+default_model = "gpt-5.5"
+
 [claude]
 bin = "claude"
 default_permission_mode = "auto"
-default_model = "sonnet"
+default_model = "claude-opus-4-7"
 ```
 
 也可以在项目级指定后端：
@@ -527,6 +530,7 @@ feique doctor --remote
 [codex]
 shell = "/bin/zsh"
 pre_exec = "proxy_on"
+default_model = "gpt-5.5"
 ```
 
 Claude Code 后端同理：
@@ -550,7 +554,7 @@ default = "claude"
 [claude]
 bin = "claude"
 default_permission_mode = "auto"
-default_model = "sonnet"
+default_model = "claude-opus-4-7"
 # max_budget_usd = 5.0
 # allowed_tools = ["Bash", "Read", "Edit", "Write"]
 ```

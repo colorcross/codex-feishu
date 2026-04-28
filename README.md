@@ -163,6 +163,7 @@ reply_mode = "card"  # text | post | card
 
 [codex]
 bin = "codex"
+default_model = "gpt-5.5"
 default_sandbox = "workspace-write"
 run_timeout_ms = 1800000  # 30 minutes
 
@@ -173,7 +174,7 @@ run_timeout_ms = 1800000  # 30 minutes
 # [claude]
 # bin = "claude"
 # default_permission_mode = "auto"
-# default_model = "sonnet"
+# default_model = "claude-opus-4-7"
 
 [storage]
 dir = "~/.feique/state"

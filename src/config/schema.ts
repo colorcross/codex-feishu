@@ -155,6 +155,7 @@ export const bridgeConfigSchema = z.object({
       shell: z.string().optional(),
       pre_exec: z.string().optional(),
       default_profile: z.string().optional(),
+      default_model: z.string().optional(),
       default_sandbox: sandboxSchema.default('workspace-write'),
       skip_git_repo_check: z.boolean().default(true),
       output_token_limit: z.number().int().positive().default(4000),

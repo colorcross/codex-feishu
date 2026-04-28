@@ -180,6 +180,25 @@ describe('bridge service', () => {
     expect(setup.updateText.mock.calls.at(-1)?.[1]).toContain('最终结果');
   });
 
+  it('uses the global Codex default model when a project does not override it', async () => {
+    const setup = await createService({
+      codex: {
+        default_model: 'gpt-5.5',
+      },
+    });
+    runCodexTurnMock.mockResolvedValue({
+      sessionId: 'thread-1',
+      finalMessage: 'done',
+      stderr: '',
+      exitCode: 0,
+      capabilities: { version: 'codex-cli 0.98.0', exec: {}, resume: {} },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('执行一次', { message_id: 'm-codex-default-model' }));
+
+    expect(runCodexTurnMock.mock.calls[0]?.[0]?.model).toBe('gpt-5.5');
+  });
+
   it('shows a fallback message when Codex completes without displayable text', async () => {
     const setup = await createService({
       service: {

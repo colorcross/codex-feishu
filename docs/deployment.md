@@ -15,10 +15,12 @@
 [codex]
 shell = "/bin/zsh"
 pre_exec = "proxy_on"
+default_model = "gpt-5.5"
 
 [claude]
 shell = "/bin/zsh"
 pre_exec = "proxy_on"
+default_model = "claude-opus-4-7"
 ```
 
 默认行为：

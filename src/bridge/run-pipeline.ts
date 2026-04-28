@@ -240,7 +240,7 @@ export async function executePrompt(host: PipelineHost, input: ExecutePromptInpu
       projectConfig: backend.name === 'codex'
         ? {
             profile: input.project.profile ?? host.config.codex.default_profile,
-            model: input.project.codex_model,
+            model: input.project.codex_model ?? host.config.codex.default_model,
             sandbox: input.project.codex_sandbox ?? input.project.sandbox ?? host.config.codex.default_sandbox,
             tempDir: host.resolveProjectTempDir(input.projectAlias, input.project),
             cacheDir: host.resolveProjectCacheDir(input.projectAlias, input.project),

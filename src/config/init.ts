@@ -50,6 +50,7 @@ memory_pin_age_basis = "updated_at"
 bin = "codex"
 # shell = "/bin/zsh"
 # pre_exec = "proxy_on"
+# default_model = "gpt-5.5"
 default_sandbox = "workspace-write"
 skip_git_repo_check = true
 output_token_limit = 4000
