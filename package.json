@@ -1,6 +1,7 @@
 {
   "name": "feique",
   "version": "1.5.8",
+  "packageManager": "pnpm@10.28.2",
   "description": "飞鹊 (Feique) — Team AI Collaboration Hub. From individual productivity to team synergy, weave AI into every stage of work through Feishu.",
   "homepage": "https://colorcross.github.io/feique/",
   "type": "module",
@@ -52,11 +53,33 @@
   "publishConfig": {
     "access": "public"
   },
+  "overrides": {
+    "@protobufjs/utf8": "1.1.1",
+    "axios": "1.17.0",
+    "picomatch": "4.0.4",
+    "postcss": "8.5.15",
+    "protobufjs": "7.5.8",
+    "qs": "6.15.2",
+    "vite": "7.3.5",
+    "ws": "8.21.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@protobufjs/utf8": "1.1.1",
+      "axios": "1.17.0",
+      "picomatch": "4.0.4",
+      "postcss": "8.5.15",
+      "protobufjs": "7.5.8",
+      "qs": "6.15.2",
+      "vite": "7.3.5",
+      "ws": "8.21.0"
+    }
+  },
   "license": "MIT",
   "dependencies": {
     "@iarna/toml": "^2.2.5",
-    "@larksuiteoapi/node-sdk": "^1.59.0",
-    "axios": "^1.13.6",
+    "@larksuiteoapi/node-sdk": "^1.66.1",
+    "axios": "1.17.0",
     "commander": "^14.0.1",
     "https-proxy-agent": "^7.0.6",
     "pino": "^9.11.0",
@@ -66,6 +89,6 @@
     "@types/node": "^24.5.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.6"
   }
 }

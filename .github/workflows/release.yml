@@ -30,13 +30,22 @@ jobs:
     steps:
       - name: Resolve ref
         id: ref
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-            echo "ref=refs/tags/${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            case "$INPUT_TAG" in
+              v*) ;;
+              *)
+                echo "manual release tag must start with v: $INPUT_TAG" >&2
+                exit 1
+                ;;
+            esac
+            printf 'tag=%s\n' "$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            printf 'ref=refs/tags/%s\n' "$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            echo "ref=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+            printf 'tag=%s\n' "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            printf 'ref=%s\n' "$GITHUB_REF" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout
@@ -50,15 +59,21 @@ jobs:
         with:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+
+      - name: Enable pnpm
+        run: corepack enable
 
       - name: Show tool versions
         run: |
           node --version
           npm --version
+          pnpm --version
 
       - name: Validate package version matches tag
+        env:
+          TAG: ${{ steps.ref.outputs.tag }}
         run: |
-          TAG='${{ steps.ref.outputs.tag }}'
           PACKAGE_VERSION="$(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version)")"
           if [ "v${PACKAGE_VERSION}" != "${TAG}" ]; then
             echo "package.json version ${PACKAGE_VERSION} does not match tag ${TAG}" >&2
@@ -66,16 +81,16 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: npm install --no-package-lock
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Test
-        run: npm run test
+        run: pnpm run test
 
       - name: Build package
-        run: npm run build
+        run: pnpm run build
 
       - name: Publish to npm
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_npm == true)
@@ -86,14 +101,17 @@ jobs:
 
       - name: Extract release notes from CHANGELOG
         id: notes
+        env:
+          TAG: ${{ steps.ref.outputs.tag }}
         run: |
-          python3 - <<'PY' "${{ steps.ref.outputs.tag }}" "$GITHUB_OUTPUT"
+          python3 - <<'PY' "$GITHUB_OUTPUT"
           from pathlib import Path
+          import os
           import re
           import sys
 
-          tag = sys.argv[1]
-          out = Path(sys.argv[2])
+          tag = os.environ['TAG']
+          out = Path(sys.argv[1])
           text = Path('CHANGELOG.md').read_text(encoding='utf-8')
           pattern = re.compile(rf'^## {re.escape(tag)}(?:\\s+-\\s+.*)?$', re.M)
           match = pattern.search(text)
@@ -114,15 +132,15 @@ jobs:
       - name: Create or update GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ref.outputs.tag }}
         run: |
-          tag='${{ steps.ref.outputs.tag }}'
           asset=$(ls -1 *.tgz | head -n 1)
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "$asset" --clobber
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$asset" --clobber
             exit 0
           fi
           if [ '${{ steps.notes.outputs.found }}' = 'true' ]; then
-            gh release create "$tag" "$asset" --title "$tag" --notes-file '${{ steps.notes.outputs.path }}'
+            gh release create "$TAG" "$asset" --title "$TAG" --notes-file '${{ steps.notes.outputs.path }}'
           else
-            gh release create "$tag" "$asset" --title "$tag" --generate-notes
+            gh release create "$TAG" "$asset" --title "$TAG" --generate-notes
           fi

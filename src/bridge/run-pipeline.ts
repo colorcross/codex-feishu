@@ -364,12 +364,20 @@ export async function executePrompt(host: PipelineHost, input: ExecutePromptInpu
     const { cleanText: excerptWithoutFiles, filePaths } = extractFileMarkers(excerpt);
     if (filePaths.length > 0) {
       for (const filePath of filePaths) {
+        const safeFilePath = resolveSendFilePath(filePath, projectRoot);
+        if (!safeFilePath) {
+          const msg = '文件路径必须位于项目目录内。';
+          host.logger.warn({ chatId: input.chatId, filePath, projectRoot }, 'Blocked SEND_FILE marker outside project root');
+          await host.feishuClient.sendText(input.chatId, `⚠️ 文件发送失败: ${filePath}\n${msg}`);
+          continue;
+        }
+
         try {
-          await host.feishuClient.sendFile(input.chatId, filePath);
-          host.logger.info({ chatId: input.chatId, filePath }, 'Sent file to Feishu');
+          await host.feishuClient.sendFile(input.chatId, safeFilePath);
+          host.logger.info({ chatId: input.chatId, filePath: safeFilePath }, 'Sent file to Feishu');
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          host.logger.warn({ chatId: input.chatId, filePath, error: msg }, 'Failed to send file to Feishu');
+          host.logger.warn({ chatId: input.chatId, filePath: safeFilePath, error: msg }, 'Failed to send file to Feishu');
           // Notify user about the failure inline
           excerptWithoutFiles === excerpt || await host.feishuClient.sendText(input.chatId, `⚠️ 文件发送失败: ${filePath}\n${msg}`);
         }
@@ -609,6 +617,13 @@ export async function executePrompt(host: PipelineHost, input: ExecutePromptInpu
     host.activeRuns.delete(input.queueKey);
     host.runReplyTargets.delete(runId);
   }
+}
+
+function resolveSendFilePath(markerPath: string, projectRoot: string): string | null {
+  const root = path.resolve(projectRoot);
+  const candidate = path.isAbsolute(markerPath) ? path.resolve(markerPath) : path.resolve(root, markerPath);
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative)) ? candidate : null;
 }
 
 function isMissingBackendSessionError(error: unknown): boolean {

@@ -1029,6 +1029,42 @@ describe('bridge service', () => {
     expect(runCodexTurnMock.mock.calls[0]?.[0]?.prompt).toContain('登录页截图');
   });
 
+  it('only sends SEND_FILE markers that resolve inside the project root', async () => {
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'feique-project-files-'));
+    tempDirs.push(projectRoot);
+    const projectFile = path.join(projectRoot, 'reports', 'result.txt');
+    const outsideFile = path.join(os.tmpdir(), 'feique-outside-secret.txt');
+    await fs.mkdir(path.dirname(projectFile), { recursive: true });
+    await fs.writeFile(projectFile, 'safe report', 'utf8');
+    await fs.writeFile(outsideFile, 'do not upload', 'utf8');
+    tempDirs.push(outsideFile);
+
+    const setup = await createService({
+      projects: {
+        default: {
+          root: projectRoot,
+        },
+      },
+    });
+    runCodexTurnMock.mockResolvedValue({
+      sessionId: 'thread-files',
+      finalMessage: [
+        'done',
+        `[SEND_FILE:${path.relative(projectRoot, projectFile)}]`,
+        `[SEND_FILE:${outsideFile}]`,
+      ].join('\n'),
+      stderr: '',
+      exitCode: 0,
+      capabilities: { version: 'v', exec: {}, resume: {} },
+    });
+
+    await setup.service.handleIncomingMessage(buildMessage('生成报告', { message_id: 'm-send-file' }));
+
+    expect(setup.sendFile).toHaveBeenCalledTimes(1);
+    expect(setup.sendFile).toHaveBeenCalledWith('chat', projectFile);
+    expect(setup.sendText).toHaveBeenCalledWith('chat', expect.stringContaining('文件发送失败'));
+  });
+
   it('saves and searches project memory through commands', async () => {
     const setup = await createService();
 
@@ -1829,12 +1865,13 @@ async function createService(overrides: TestConfigOverrides = {}) {
   const sendText = vi.fn().mockResolvedValue({ message_id: 'm-1', open_message_id: 'm-1' });
   const sendCard = vi.fn().mockResolvedValue({ message_id: 'm-card', open_message_id: 'm-card' });
   const sendPost = vi.fn().mockResolvedValue({ message_id: 'm-post', open_message_id: 'm-post' });
+  const sendFile = vi.fn().mockResolvedValue({ message_id: 'm-file', open_message_id: 'm-file' });
   const updateText = vi.fn().mockResolvedValue({ message_id: 'm-1', open_message_id: 'm-1' });
   const updateCard = vi.fn().mockResolvedValue({ message_id: 'm-card', open_message_id: 'm-card' });
   const updatePost = vi.fn().mockResolvedValue({ message_id: 'm-post', open_message_id: 'm-post' });
   const createSdkClient = vi.fn(() => ({}));
   const restart = vi.fn().mockResolvedValue(undefined);
-  const feishuClient = { sendText, sendCard, sendPost, updateText, updateCard, updatePost, createSdkClient } as any;
+  const feishuClient = { sendText, sendCard, sendPost, sendFile, updateText, updateCard, updatePost, createSdkClient } as any;
   const service = new FeiqueService(
     config,
     feishuClient,
@@ -1856,6 +1893,7 @@ async function createService(overrides: TestConfigOverrides = {}) {
     sendText,
     sendCard,
     sendPost,
+    sendFile,
     updateText,
     updateCard,
     updatePost,

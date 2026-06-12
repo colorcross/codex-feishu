@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased - 2026-06-12
+
+### 安全
+- 升级 `@larksuiteoapi/node-sdk`、`axios`、`vitest`，并通过 npm / pnpm overrides 固定传递依赖补丁版本，清理 `pnpm audit --audit-level moderate` 报告的漏洞。
+- `[SEND_FILE:path]` 文件发送标记现在只允许解析到项目根目录内的路径，避免模型输出绝对路径时误上传项目外文件。
+
+### CI
+- GitHub Release workflow 改为使用 `pnpm install --frozen-lockfile`，避免 release 构建绕过 `pnpm-lock.yaml` 和安全 overrides。
+- GitHub Release workflow 的手动 tag 输入改为通过环境变量传入 shell，并校验必须是 `v*` 标签。
+
 ## v1.5.8 - 2026-04-28
 
 ### 修复

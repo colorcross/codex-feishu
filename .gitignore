@@ -2,6 +2,7 @@ node_modules
 /dist
 .vitest
 coverage
+.serena/
 .env
 .env.*
 !.env.example
